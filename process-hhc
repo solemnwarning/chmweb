@@ -1,0 +1,219 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use File::Basename;
+
+my $h = HHCParser::parse_hhc_file($ARGV[0]);
+
+sub walk
+{
+	my ($root, $nodes, $path) = @_;
+	
+	my $indent_s = " " x ((scalar @$path) * 4);
+	
+	for(my $i = 0; $i < (scalar @$nodes); ++$i)
+	{
+		my $node = $nodes->[$i];
+		
+		if(defined $node->{Local})
+		{
+			print $ARGV[0], ": ", $indent_s, $node->{Name}, " (", $node->{Local}, ")\n";
+			
+			build_wrapper_page($root, $node, [ @$path, $i ]);
+		}
+		else{
+			print $ARGV[0], ": ", $indent_s, $node->{Name}, "\n";
+		}
+		
+		walk($root, $node->{children}, [ @$path, $i ]) if defined $node->{children};
+	}
+}
+
+walk($h->{toc}, $h->{toc}, []);
+
+sub build_wrapper_page
+{
+	my ($root, $node, $path) = @_;
+	
+	my $dir = dirname($node->{Local});
+	my $file = basename($node->{Local});
+	
+	my $wrap_file = "$dir/wrap.$file";
+	
+	my $toc = build_wrapper_toc($root, @$path);
+	
+	open(my $fh, ">", $wrap_file) or die "$wrap_file: $!";
+	
+	print {$fh} <<EOF;
+<html>
+<head>
+<title>$node->{Name}</title>
+</head>
+
+<body>
+<div style="position: fixed; top: 0px; left: 0px; height: 100%; width: 200px; overflow: scroll;">
+$toc
+</div>
+<iframe src="$file" style="position: fixed; top: 0px; width: calc(100% - 200px); left: 200px; height:100%;"></iframe>
+</body>
+</html>
+EOF
+}
+
+sub build_wrapper_toc
+{
+	my ($nodes, $path, @path_next) = @_;
+	
+	my $r = "<ul style=\"padding-left:1em;\">\n";
+	
+	for(my $i = 0; $i < @$nodes; ++$i)
+	{
+		my $node = $nodes->[$i];
+		
+		my $aa = "";
+		my $ab = "";
+		
+		if(defined $node->{Local})
+		{
+			#my $href = dirname($node->{Local})."/wrap.".basename($node->{Local});
+			my $href = "wrap.".basename($node->{Local});
+			$aa = "<a href=\"$href\">";
+			$ab = "</a>";
+		}
+		
+		if($i == ($path // $i))
+		{
+			$r .= "<li><b>${aa}".$nodes->[$i]->{Name}."${ab}</b>\n";
+			
+			if(defined $nodes->[$i]->{children})
+			{
+				$r .= build_wrapper_toc($nodes->[$i]->{children}, @path_next);
+			}
+			
+			$r .= "</li>\n";
+		}
+		else{
+			$r .= "<li>${aa}".$nodes->[$i]->{Name}."${ab}</li>\n";
+		}
+	}
+	
+	$r .= "</ul>\n";
+	
+	return $r;
+}
+
+package HHCParser;
+
+use SGML::Parser::OpenSP;
+
+sub parse_hhc_file
+{
+	my ($filename) = @_;
+	
+	my $p = SGML::Parser::OpenSP->new();
+	my $h = HHCParser::Handler->new();
+	
+	$p->catalogs(qw(xhtml.soc));
+	$p->warnings(qw(xml valid));
+	$p->handler($h);
+	
+	$p->parse($ARGV[0]);
+	
+	_merge_empty_nodes($h->{toc});
+	
+	return {
+		toc => $h->{toc},
+	};
+}
+
+# Some HHC files close the parent <li> tag before opening the <ul> of the child list, which makes
+# OpenSP generate a fake <li> tag to keep the structure valid, but then we wind up with nodes that
+# only have sub-lists in them, so we have to flatten them into their previous sibling to avoid
+# garbage nodes...
+
+sub _merge_empty_nodes
+{
+	my ($nodes) = @_;
+	
+	for(my $i = 0; ($i + 1) < (scalar @$nodes);)
+	{
+		my @next_keys = keys(%{ $nodes->[$i + 1] });
+		
+		if((scalar @next_keys) == 1 && $next_keys[0] eq "children")
+		{
+			$nodes->[$i]->{children} = [
+				@{ $nodes->[$i]->{children} // [] },
+				@{ $nodes->[$i + 1]->{children} },
+			];
+			
+			splice(@$nodes, $i + 1, 1);
+		}
+		else{
+			++$i;
+		}
+	}
+	
+	foreach my $node(@$nodes)
+	{
+		if(defined $node->{children})
+		{
+			_merge_empty_nodes($node->{children});
+		}
+	}
+}
+
+package HHCParser::Handler;
+
+sub new
+{
+	my ($class) = @_;
+	
+	my $self = bless({}, $class);
+	
+	$self->{toc} = [];
+	$self->{li_node} = undef;
+	$self->{stack} = [ $self->{toc} ];
+	
+	return $self;
+}
+
+sub start_element
+{
+	my ($self, $elem) = @_;
+	
+	if(lc($elem->{Name}) eq "ul")
+	{
+		if(defined $self->{li_node})
+		{
+			$self->{li_node}->{children} //= [];
+			push(@{ $self->{stack} }, $self->{li_node}->{children});
+		}
+	}
+	elsif(lc($elem->{Name}) eq "li")
+	{
+		$self->{li_node} = {};
+		push(@{ $self->{stack}->[-1] }, $self->{li_node});
+	}
+	elsif(lc($elem->{Name}) eq "param")
+	{
+		if(defined $self->{li_node})
+		{
+			my $a_name  = $elem->{Attributes}->{NAME}->{CdataChunks}->[0]->{Data};
+			my $a_value = $elem->{Attributes}->{VALUE}->{CdataChunks}->[0]->{Data};
+			
+			$self->{li_node}->{$a_name} = $a_value;
+		}
+	}
+}
+
+sub end_element
+{
+	my ($self, $elem) = @_;
+	
+	if(lc($elem->{Name}) eq "ul")
+	{
+		pop(@{ $self->{stack} });
+	}
+}
