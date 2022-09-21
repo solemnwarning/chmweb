@@ -1,0 +1,144 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use File::Basename;
+
+use FindBin;
+use lib ("$FindBin::Bin/../lib/");
+
+use App::ChmWeb::HHCParser;
+use App::ChmWeb::PageFixer;
+use App::ChmWeb::Util;
+
+main() unless caller;
+
+sub main
+{
+	if((scalar @ARGV) != 2)
+	{
+		die "Usage: $0 <input.chm> <output directory>\n";
+	}
+	
+	my ($chm_in, $dir_out) = @ARGV;
+	
+	system("mkdir", "-p", $dir_out) and die;
+	system("7z", "x", $chm_in, "-o${dir_out}", "-aoa") and die;
+	
+	my $hhc_name = App::ChmWeb::Util::find_hhc_in($dir_out);
+	
+	chdir($dir_out) or die $!;
+	
+	my $hhc = App::ChmWeb::HHCParser::parse_hhc_file($hhc_name);
+	
+	process_hhc_level($hhc->{toc}, $hhc->{toc}, []);
+}
+
+sub process_hhc_level
+{
+	my ($root, $nodes, $toc_path) = @_;
+	
+	for(my $i = 0; $i < (scalar @$nodes); ++$i)
+	{
+		my $node = $nodes->[$i];
+		
+		if(defined $node->{Local})
+		{
+			my $orig_path    = $node->{Local};
+			my $content_path = ($node->{Local} =~ s/\.(\w+)$/.content.$1/r);
+			
+			write_content_page($orig_path, $content_path);
+			
+			write_wrapper_page($root, $node, [ @$toc_path, $i ], $orig_path, $content_path);
+		}
+		
+		process_hhc_level($root, $node->{children}, [ @$toc_path, $i ]) if defined $node->{children};
+	}
+}
+
+sub write_content_page
+{
+	my ($orig_path, $content_path) = @_;
+	
+	my $pf = App::ChmWeb::PageFixer->new();
+	$pf->load_content($orig_path);
+	
+	$pf->fix_absolute_image_paths();
+	$pf->fix_absolute_links();
+	$pf->set_default_link_target("_parent");
+	
+	$pf->write_content($content_path);
+}
+
+sub write_wrapper_page
+{
+	my ($root, $node, $toc_path, $orig_path, $content_path) = @_;
+	
+	my $toc = build_wrapper_toc($root, $toc_path, $content_path);
+	
+	my $content_name = basename($content_path);
+	
+	open(my $fh, ">", $orig_path) or die "$orig_path: $!";
+	print {$fh} <<EOF;
+<html>
+<head>
+<title>$node->{Name}</title>
+</head>
+
+<body>
+<div style="position: fixed; top: 0px; left: 0px; height: 100%; width: 200px; overflow: scroll;">
+$toc
+</div>
+<iframe src="$content_name" style="position: fixed; top: 0px; width: calc(100% - 200px); left: 200px; height:100%;"></iframe>
+</body>
+</html>
+EOF
+}
+
+sub build_wrapper_toc
+{
+	my ($nodes, $toc_path, $content_path) = @_;
+	
+	my ($toc_this, @toc_next) = @$toc_path;
+	
+	my $indent_s = " " x ((scalar @$toc_path) * 4);
+	
+	my $r = "<ul style=\"padding-left:1em;\">\n";
+	
+	for(my $i = 0; $i < @$nodes; ++$i)
+	{
+		my $node = $nodes->[$i];
+		
+		print $indent_s, $node->{Name}, "...\n";
+		
+		my $aa = "";
+		my $ab = "";
+		
+		if(defined $node->{Local})
+		{
+			my $href = App::ChmWeb::Util::resolve_link($content_path, "/".$node->{Local});
+			$aa = "<a href=\"$href\">";
+			$ab = "</a>";
+		}
+		
+		if(defined($toc_this) && $i == $toc_this)
+		{
+			$r .= "<li><b>${aa}".$nodes->[$i]->{Name}."${ab}</b>\n";
+			
+			if(defined $nodes->[$i]->{children})
+			{
+				$r .= build_wrapper_toc($nodes->[$i]->{children}, \@toc_next, $content_path);
+			}
+			
+			$r .= "</li>\n";
+		}
+		else{
+			$r .= "<li>${aa}".$nodes->[$i]->{Name}."${ab}</li>\n";
+		}
+	}
+	
+	$r .= "</ul>\n";
+	
+	return $r;
+}
