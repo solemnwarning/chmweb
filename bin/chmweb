@@ -45,7 +45,7 @@ sub process_hhc_level
 	{
 		my $node = $nodes->[$i];
 		
-		print $chm_basename, ": ", $indent_s, $node->{Name}, "...\n";
+		print $chm_basename, ": ", $indent_s, $node->{Name}, (defined($node->{Local}) ? " (".$node->{Local}.")" : ""), "...\n";
 		
 		if(defined $node->{Local})
 		{
@@ -122,20 +122,29 @@ sub build_wrapper_toc
 			$ab = "</a>";
 		}
 		
+		my $ba = "";
+		my $bb = "";
+		
 		if(defined($toc_this) && $i == $toc_this)
 		{
-			$r .= "<li><b>${aa}".$nodes->[$i]->{Name}."${ab}</b>\n";
-			
-			if(defined $nodes->[$i]->{children})
-			{
-				$r .= build_wrapper_toc($nodes->[$i]->{children}, \@toc_next, $content_path);
-			}
-			
-			$r .= "</li>\n";
+			$ba = "<b>";
+			$bb = "</b>";
 		}
-		else{
-			$r .= "<li>${aa}".$nodes->[$i]->{Name}."${ab}</li>\n";
+		
+		$r .= "<li>${ba}${aa}".$nodes->[$i]->{Name}."${ab}${bb}</b>\n";
+		
+		if(
+			# Node has children...
+			defined($node->{children})
+				# ...the current page is at/under it...
+				&& ((defined($toc_this) && $i == $toc_this)
+				# ...or it doesn't have a link (wouldn't be expandable by itself)
+				|| !defined($node->{Local})))
+		{
+			$r .= build_wrapper_toc($node->{children}, \@toc_next, $content_path);
 		}
+		
+		$r .= "</li>\n";
 	}
 	
 	$r .= "</ul>\n";
