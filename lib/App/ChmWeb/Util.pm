@@ -3,9 +3,29 @@ use warnings;
 
 package App::ChmWeb::Util;
 
+use File::Basename;
+
 sub resolve_link
 {
 	my ($local_document, $link) = @_;
+	
+	if($link =~ m/^#/)
+	{
+		# Link points to an anchor in this document.
+		# TODO: Prevent target rewrite in this case...
+		return $link;
+	}
+	
+	if($link =~ m/^\w+:/)
+	{
+		# Link points at some other site (it starts with a protocol).
+		return $link;
+	}
+	
+	my $orig_link = $link;
+	
+	my $anchor = ($link =~ m/(#.*)$/);
+	$link =~ s/(#.*)$//;
 	
 	if($link =~ m/^\//)
 	{
@@ -41,13 +61,77 @@ sub resolve_link
 			}
 		}
 		
-		my $new_link = join("/", @new_link_dir, $link_file);
-		return $new_link;
+		$link = join("/", @new_link_dir, $link_file);
+	}
+	
+	# Resolve mismatched case in local links
+	my $resolved_link = resolve_mixed_case_path($link, dirname($local_document));
+	if($resolved_link)
+	{
+		$link = $resolved_link;
 	}
 	else{
-		# Link is relative (or to a different domain) - return as-is
-		return $link;
+		warn "WARNING: Link '$orig_link' in $local_document appears to be broken\n";
 	}
+	
+	# Re-instate anchor (if present).
+	$link .= $anchor;
+	
+	return $link;
+}
+
+sub resolve_mixed_case_path
+{
+	my ($path, $prefix) = @_;
+	
+	if(-e $path)
+	{
+		# Path exists and is already cased correctly.
+		return $path;
+	}
+	
+	if(defined $prefix)
+	{
+		$prefix .= "/";
+	}
+	else{
+		$prefix = "";
+	}
+	
+	my @in_parts = split(m/\//, $path);
+	
+	my @resolved_parts = ();
+	
+	P: foreach my $p(@in_parts)
+	{
+		my $p_parent = $prefix.join("/", @resolved_parts);
+		my $p_path = $prefix.join("/", @resolved_parts, $p);
+		
+		if(-e $p_path)
+		{
+			push(@resolved_parts, $p);
+		}
+		else{
+			if(opendir(my $d, $p_parent))
+			{
+				foreach my $sibling_name(readdir($d))
+				{
+					if(lc($sibling_name) eq lc($p))
+					{
+						push(@resolved_parts, $sibling_name);
+						next P;
+					}
+				}
+			}
+			else{
+				warn "$p_parent: $!\n";
+			}
+			
+			return undef;
+		}
+	}
+	
+	return join("/", @resolved_parts);
 }
 
 sub find_hhc_in

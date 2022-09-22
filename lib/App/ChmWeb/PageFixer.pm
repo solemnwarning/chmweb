@@ -74,15 +74,20 @@ sub fix_absolute_image_paths
 					keys(%$elem_attributes);
 				
 				if(defined $src_attrib_name
-					&& defined($elem_attributes->{$src_attrib_name})
-					&& $elem_attributes->{$src_attrib_name} =~ m/^\//)
+					&& defined($elem_attributes->{$src_attrib_name}))
 				{
-					# Need to fix this up
+					my $old_src = $elem_attributes->{$src_attrib_name};
+					my $fixed_src = App::ChmWeb::Util::resolve_link($self->{filename}, $old_src);
 					
-					my %new_attribs = %$elem_attributes;
-					$new_attribs{$src_attrib_name} = App::ChmWeb::Util::resolve_link($self->{filename}, $elem_attributes->{src});
-					
-					push(@replacements, $self->_tag_replacement($elem_name, \%new_attribs, $location));
+					if($fixed_src ne $old_src)
+					{
+						# Need to fix this up
+						
+						my %new_attribs = %$elem_attributes;
+						$new_attribs{$src_attrib_name} = $fixed_src;
+						
+						push(@replacements, $self->_tag_replacement($elem_name, \%new_attribs, $location));
+					}
 				}
 			}
 		});
@@ -107,15 +112,20 @@ sub fix_absolute_links
 					keys(%$elem_attributes);
 				
 				if(defined $href_attrib_name
-					&& defined($elem_attributes->{$href_attrib_name})
-					&& $elem_attributes->{$href_attrib_name} =~ m/^\//)
+					&& defined($elem_attributes->{$href_attrib_name}))
 				{
-					# Need to fix this up
+					my $old_href = $elem_attributes->{$href_attrib_name};
+					my $fixed_href = App::ChmWeb::Util::resolve_link($self->{filename}, $old_href);
 					
-					my %new_attribs = %$elem_attributes;
-					$new_attribs{$href_attrib_name} = App::ChmWeb::Util::resolve_link($self->{filename}, $elem_attributes->{href});
-					
-					push(@replacements, $self->_tag_replacement($elem_name, \%new_attribs, $location));
+					if($old_href ne $fixed_href)
+					{
+						# Need to fix this up
+						
+						my %new_attribs = %$elem_attributes;
+						$new_attribs{$href_attrib_name} = $fixed_href;
+						
+						push(@replacements, $self->_tag_replacement($elem_name, \%new_attribs, $location));
+					}
 				}
 			}
 		});

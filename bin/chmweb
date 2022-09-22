@@ -49,7 +49,7 @@ sub process_hhc_level
 		
 		if(defined $node->{Local})
 		{
-			my $orig_path    = $node->{Local};
+			my $orig_path    = App::ChmWeb::Util::resolve_mixed_case_path($node->{Local});
 			my $content_path = ($node->{Local} =~ s/\.(\w+)$/.content.$1/r);
 			
 			write_content_page($orig_path, $content_path);
