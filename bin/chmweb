@@ -32,16 +32,20 @@ sub main
 	
 	my $hhc = App::ChmWeb::HHCParser::parse_hhc_file($hhc_name);
 	
-	process_hhc_level($hhc->{toc}, $hhc->{toc}, []);
+	process_hhc_level($hhc->{toc}, $hhc->{toc}, [], basename($chm_in));
 }
 
 sub process_hhc_level
 {
-	my ($root, $nodes, $toc_path) = @_;
+	my ($root, $nodes, $toc_path, $chm_basename) = @_;
+	
+	my $indent_s = " " x ((scalar @$toc_path) * 4);
 	
 	for(my $i = 0; $i < (scalar @$nodes); ++$i)
 	{
 		my $node = $nodes->[$i];
+		
+		print $chm_basename, ": ", $indent_s, $node->{Name}, "...\n";
 		
 		if(defined $node->{Local})
 		{
@@ -53,7 +57,7 @@ sub process_hhc_level
 			write_wrapper_page($root, $node, [ @$toc_path, $i ], $orig_path, $content_path);
 		}
 		
-		process_hhc_level($root, $node->{children}, [ @$toc_path, $i ]) if defined $node->{children};
+		process_hhc_level($root, $node->{children}, [ @$toc_path, $i ], $chm_basename) if defined $node->{children};
 	}
 }
 
@@ -102,15 +106,11 @@ sub build_wrapper_toc
 	
 	my ($toc_this, @toc_next) = @$toc_path;
 	
-	my $indent_s = " " x ((scalar @$toc_path) * 4);
-	
 	my $r = "<ul style=\"padding-left:1em;\">\n";
 	
 	for(my $i = 0; $i < @$nodes; ++$i)
 	{
 		my $node = $nodes->[$i];
-		
-		print $indent_s, $node->{Name}, "...\n";
 		
 		my $aa = "";
 		my $ab = "";
