@@ -64,7 +64,7 @@ sub process_hhc_level
 		
 		if(defined $node->{Local})
 		{
-			my $orig_path    = App::ChmWeb::Util::resolve_mixed_case_path($node->{Local});
+			my $orig_path    = App::ChmWeb::Util::resolve_mixed_case_path($node->{Local}, "");
 			my $content_path = ($node->{Local} =~ s/\.(\w+)$/.content.$1/r);
 			
 			write_content_page($orig_path, $content_path);
@@ -83,7 +83,7 @@ sub write_content_page
 	my $pf = App::ChmWeb::PageFixer->new();
 	$pf->load_content($orig_path);
 	
-	$pf->fix_absolute_image_paths();
+	$pf->fix_image_paths();
 	$pf->fix_absolute_links();
 	$pf->set_default_link_target("_parent");
 	
@@ -132,7 +132,7 @@ sub build_wrapper_toc
 		
 		if(defined $node->{Local})
 		{
-			my $href = App::ChmWeb::Util::resolve_link($content_path, "/".$node->{Local});
+			my $href = App::ChmWeb::Util::resolve_link("", $content_path, "/".$node->{Local});
 			$aa = "<a href=\"$href\">";
 			$ab = "</a>";
 		}

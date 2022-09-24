@@ -14,16 +14,43 @@
 # this program; if not, write to the Free Software Foundation, Inc., 51
 # Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
+=head1 NAME
+
+App::ChmWeb::Util
+
+=head1 METHODS
+
+=cut
+
 use strict;
 use warnings;
+
+use feature qw(fc);
 
 package App::ChmWeb::Util;
 
 use File::Basename;
 
+=head2 resolve_link($root_directory, $local_document, $link)
+
+This method resolves a link in a document - absolute links to other files in
+the same chm are converted to relative links and any whose casing does not
+match the actual file/directory on disk are corrected.
+
+$root_directory is the filesystem path to the root of the extracted chm, with
+a trailing slash. It may be the empty string for the current working directory.
+
+$local_document is the path to the HTML document containing the link, relative
+to $root_directory.
+
+$link is the link from the document to be resolved (handle URL encoding and/or
+decoding yourself as necessary).
+
+=cut
+
 sub resolve_link
 {
-	my ($local_document, $link) = @_;
+	my ($root_directory, $local_document, $link) = @_;
 	
 	if($link =~ m/^#/)
 	{
@@ -59,7 +86,7 @@ sub resolve_link
 		
 		for(my ($i, $flag) = (0, 0); $i < (scalar @local_dir); ++$i)
 		{
-			if($flag || $i > $#link_dir || $local_dir[$i] ne $link_dir[$i])
+			if($flag || $i > $#link_dir || fc($local_dir[$i]) ne fc($link_dir[$i]))
 			{
 				push(@new_link_dir, "..");
 				$flag = 1;
@@ -70,7 +97,7 @@ sub resolve_link
 		
 		for(my ($i, $flag) = (0, 0); $i < (scalar @link_dir); ++$i)
 		{
-			if($flag || $i > $#local_dir || $local_dir[$i] ne $link_dir[$i])
+			if($flag || $i > $#local_dir || fc($local_dir[$i]) ne fc($link_dir[$i]))
 			{
 				push(@new_link_dir, $link_dir[$i]);
 				$flag = 1;
@@ -80,8 +107,11 @@ sub resolve_link
 		$link = join("/", @new_link_dir, $link_file);
 	}
 	
+	my $fs_prefix = $root_directory.dirname($local_document);
+	$fs_prefix .= "/" if($fs_prefix ne "");
+	
 	# Resolve mismatched case in local links
-	my $resolved_link = resolve_mixed_case_path($link, dirname($local_document));
+	my $resolved_link = resolve_mixed_case_path($link, $fs_prefix);
 	if($resolved_link)
 	{
 		$link = $resolved_link;
@@ -96,11 +126,23 @@ sub resolve_link
 	return $link;
 }
 
+=head2 resolve_mixed_case_path($path, $prefix)
+
+Canonicalises a mixed-case path to match the case of the filename that actually
+exists on the filesystem.
+
+$prefix is tacked on the front of the path for all filesystem operations, but
+will not be canonicalised or included in the returned path.
+
+Returns undef if the target path cannot be found.
+
+=cut
+
 sub resolve_mixed_case_path
 {
 	my ($path, $prefix) = @_;
 	
-	if(-e $path)
+	if(-e $prefix.$path)
 	{
 		# Path exists and is already cased correctly.
 		return $path;
@@ -128,6 +170,11 @@ sub resolve_mixed_case_path
 			push(@resolved_parts, $p);
 		}
 		else{
+			if(!-d $p_parent)
+			{
+				return undef;
+			}
+			
 			if(opendir(my $d, $p_parent))
 			{
 				foreach my $sibling_name(readdir($d))

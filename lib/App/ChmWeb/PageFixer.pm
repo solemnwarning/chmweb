@@ -45,6 +45,7 @@ sub load_content
 	
 	$self->{content} = do { local $/; <$file>; };
 	$self->{filename} = $filename;
+	$self->{root_directory} = "";
 }
 
 sub write_content
@@ -61,10 +62,23 @@ sub write_content
 
 sub set_content
 {
-	my ($self, $content, $filename) = @_;
+	my ($self, $content, $filename, $root_directory) = @_;
 	
 	$self->{content} = $content;
 	$self->{filename} = $filename;
+	
+	if(defined $root_directory)
+	{
+		if($root_directory !~ m/\/$/)
+		{
+			$root_directory .= "/";
+		}
+		
+		$self->{root_directory} = $root_directory;
+	}
+	else{
+		$self->{root_directory} = "";
+	}
 }
 
 sub get_content
@@ -73,7 +87,7 @@ sub get_content
 	return $self->{content};
 }
 
-sub fix_absolute_image_paths
+sub fix_image_paths
 {
 	my ($self) = @_;
 	
@@ -86,23 +100,20 @@ sub fix_absolute_image_paths
 			
 			if(lc($elem_name) eq "img")
 			{
-				my ($src_attrib_name) = grep { lc($_) eq "src" }
-					keys(%$elem_attributes);
+				my ($src_attrib) = grep { lc($_->{name}) eq "src" } @$elem_attributes;
 				
-				if(defined $src_attrib_name
-					&& defined($elem_attributes->{$src_attrib_name}))
+				if(defined $src_attrib && defined $src_attrib->{value})
 				{
-					my $old_src = $elem_attributes->{$src_attrib_name};
-					my $fixed_src = App::ChmWeb::Util::resolve_link($self->{filename}, $old_src);
+					my $old_src = $src_attrib->{value};
+					my $fixed_src = App::ChmWeb::Util::resolve_link($self->{root_directory}, $self->{filename}, $old_src);
 					
 					if($fixed_src ne $old_src)
 					{
 						# Need to fix this up
 						
-						my %new_attribs = %$elem_attributes;
-						$new_attribs{$src_attrib_name} = $fixed_src;
+						$src_attrib->{value} = $fixed_src;
 						
-						push(@replacements, $self->_tag_replacement($elem_name, \%new_attribs, $location));
+						push(@replacements, $self->_tag_replacement($elem_name, $elem_attributes, $location));
 					}
 				}
 			}
@@ -124,23 +135,20 @@ sub fix_absolute_links
 			
 			if(lc($elem_name) eq "a")
 			{
-				my ($href_attrib_name) = grep { lc($_) eq "href" }
-					keys(%$elem_attributes);
+				my ($href_attrib) = grep { lc($_->{name}) eq "href" } @$elem_attributes;
 				
-				if(defined $href_attrib_name
-					&& defined($elem_attributes->{$href_attrib_name}))
+				if(defined $href_attrib && defined $href_attrib->{value})
 				{
-					my $old_href = $elem_attributes->{$href_attrib_name};
-					my $fixed_href = App::ChmWeb::Util::resolve_link($self->{filename}, $old_href);
+					my $old_href = $href_attrib->{value};
+					my $fixed_href = App::ChmWeb::Util::resolve_link($self->{root_directory}, $self->{filename}, $old_href);
 					
 					if($old_href ne $fixed_href)
 					{
 						# Need to fix this up
 						
-						my %new_attribs = %$elem_attributes;
-						$new_attribs{$href_attrib_name} = $fixed_href;
+						$href_attrib->{value} = $fixed_href;
 						
-						push(@replacements, $self->_tag_replacement($elem_name, \%new_attribs, $location));
+						push(@replacements, $self->_tag_replacement($elem_name, $elem_attributes, $location));
 					}
 				}
 			}
@@ -162,15 +170,17 @@ sub set_default_link_target
 			
 			if(lc($elem_name) eq "a")
 			{
-				my ($target_attrib_name) = grep { lc($_) eq "target" }
-					keys(%$elem_attributes);
+				my ($href_attrib) = grep { lc($_->{name}) eq "href" } @$elem_attributes;
+				my ($target_attrib) = grep { lc($_->{name}) eq "target" } @$elem_attributes;
 				
-				unless(defined $target_attrib_name)
+				if(defined($href_attrib) && !defined($target_attrib))
 				{
-					my %new_attribs = %$elem_attributes;
-					$new_attribs{target} = $link_target;
+					push(@$elem_attributes, {
+						name => "TARGET",
+						value => $link_target,
+					});
 					
-					push(@replacements, $self->_tag_replacement($elem_name, \%new_attribs, $location));
+					push(@replacements, $self->_tag_replacement($elem_name, $elem_attributes, $location));
 				}
 			}
 		});
@@ -195,7 +205,11 @@ sub _parse_content
 sub _encode_tag
 {
 	my ($elem_name, $elem_attributes) = @_;
-	return join(" ", "<${elem_name}", map { "$_=\"".encode_entities($elem_attributes->{$_})."\"" } keys(%$elem_attributes)).">";
+	return join(" ", "<${elem_name}", map {
+		defined($_->{value})
+			? ($_->{name}."=\"".encode_entities($_->{value})."\"")
+			: $_->{name}
+		} @$elem_attributes).">";
 }
 
 sub _tag_replacement
@@ -263,21 +277,34 @@ sub start_element
 	
 	if(defined $self->{callbacks}->{start_element})
 	{
-		my %attributes = ();
+		my @attributes = ();
 		
-		foreach my $attr(values(%{ $elem->{Attributes} }))
+		foreach my $attr(sort { $a->{Index} <=> $b->{Index} } values(%{ $elem->{Attributes} }))
 		{
-			if($attr->{Type} eq "cdata" && (scalar @{ $attr->{CdataChunks} }) == 0)
+			if(defined($attr->{Defaulted}) && $attr->{Defaulted} eq "definition")
 			{
-				$attributes{ $attr->{Name} } = undef;
+				# Not set in markup - implied by spec.
+				next;
 			}
-			elsif($attr->{Type} eq "cdata" && (scalar @{ $attr->{CdataChunks} }) == 1)
+			
+			if($attr->{Type} eq "cdata")
 			{
-				$attributes{ $attr->{Name} } = $attr->{CdataChunks}->[0]->{Data};
+				if((scalar @{ $attr->{CdataChunks} }) == 0)
+				{
+					push(@attributes, {
+						name => $attr->{Name},
+					});
+				}
+				else{
+					push(@attributes, map { {
+						name => $attr->{Name},
+						value => $_->{Data},
+					} } @{ $attr->{CdataChunks} });
+				}
 			}
 		}
 		
-		$self->{callbacks}->{start_element}->($elem->{Name}, \%attributes, $self->{parser}->get_location());
+		$self->{callbacks}->{start_element}->($elem->{Name}, \@attributes, $self->{parser}->get_location());
 	}
 }
 
