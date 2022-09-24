@@ -1,0 +1,24 @@
+name: Run tests
+
+on: [push]
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install dependencies
+      run: |
+          sudo apt-get install \
+            libmodule-build-perl \
+            libsgml-parser-opensp-perl \
+            libhtml-parser-perl \
+            libtest-spec-perl
+
+    - name: Run tests
+      run: |
+          perl Build.PL
+          ./Build build
+          ./Build test
