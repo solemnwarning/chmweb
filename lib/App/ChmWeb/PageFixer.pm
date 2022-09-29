@@ -38,14 +38,26 @@ sub new
 
 sub load_content
 {
-	my ($self, $filename) = @_;
+	my ($self, $filename, $root_directory) = @_;
 	
-	open(my $file, "<", $filename) or die "$filename: $!\n";
+	open(my $file, "<", "${root_directory}${filename}") or die "${root_directory}${filename}: $!\n";
 	binmode($file);
 	
 	$self->{content} = do { local $/; <$file>; };
 	$self->{filename} = $filename;
-	$self->{root_directory} = "";
+	
+	if(defined $root_directory)
+	{
+		if($root_directory !~ m/\/$/)
+		{
+			$root_directory .= "/";
+		}
+		
+		$self->{root_directory} = $root_directory;
+	}
+	else{
+		$self->{root_directory} = "";
+	}
 }
 
 sub write_content

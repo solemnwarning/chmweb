@@ -32,35 +32,123 @@ main() unless caller;
 
 sub main
 {
-	if((scalar @ARGV) != 2)
+	my $command = shift(@ARGV) // "";
+	
+	if($command eq "single-chm" && (scalar @ARGV) == 2)
 	{
-		die "Usage: $0 <input.chm> <output directory>\n";
+		my ($chm_file, $output_dir) = @ARGV;
+		
+		$output_dir .= "/" if($output_dir !~ m/\/$/);
+		
+		singlechm($chm_file, $output_dir);
 	}
+	elsif($command eq "multi-chm" && (scalar @ARGV) >= 2)
+	{
+		my $output_dir = pop(@ARGV);
+		my @chm_files = @ARGV;
+		
+		$output_dir .= "/" if($output_dir !~ m/\/$/);
+		
+		multichm(\@chm_files, $output_dir);
+	}
+	else{
+		die "Usage: $0 single-chm <input.chm> <output directory>\n"
+		   ."       $0 multi-chm <input1.chm> <input2.chm> ... <output directory>\n";
+	}
+}
+
+sub singlechm
+{
+	my ($chm_file, $output_dir) = @_;
 	
-	my ($chm_in, $dir_out) = @ARGV;
+	my $chm_basename = basename($chm_file);
+	my $chm_basename_noext = ($chm_basename =~ s/\.chm$//ir);
 	
-	system("mkdir", "-p", $dir_out) and die;
-	system("7z", "x", $chm_in, "-o${dir_out}", "-aoa") and die;
+	system("mkdir", "-p", $output_dir) and die;
+	system("7z", "x", $chm_file, "-o${output_dir}", "-aoa") and die;
 	
-	my $hhc_name = App::ChmWeb::Util::find_hhc_in($dir_out);
+	my $hhc_name = App::ChmWeb::Util::find_hhc_in($output_dir);
+	my $hhc = App::ChmWeb::HHCParser::parse_hhc_file("${output_dir}/${hhc_name}");
 	
-	chdir($dir_out) or die $!;
-	
-	my $hhc = App::ChmWeb::HHCParser::parse_hhc_file($hhc_name);
+	visit_hhc_nodes($hhc->{toc}, sub
+	{
+		my ($node) = @_;
+		
+		$node->{chm_basename} = $chm_basename;
+	});
 	
 	{
 		my $pool = App::ChmWeb::WorkerPool->new(\&process_hhc_level_do_work);
 		
-		process_hhc_level($hhc->{toc}, $hhc->{toc}, [], basename($chm_in), $pool);
+		process_hhc_level($hhc->{toc}, [], $hhc->{toc}, $output_dir, $pool);
 		
 		# Wait for outstanding tasks
 		$pool->drain();
 	}
 }
 
+sub multichm
+{
+	my ($chm_files, $output_dir) = @_;
+	
+	my @merged_toc = ();
+	my %chms = ();
+	
+	foreach my $chm_file(@$chm_files)
+	{
+		my $chm_basename = basename($chm_file);
+		my $chm_basename_noext = ($chm_basename =~ s/\.chm$//ir);
+		
+		if($chms{$chm_basename_noext})
+		{
+			die "Multiple input files with same name ($chm_basename) on command line\n";
+		}
+		
+		$chms{$chm_basename_noext} = 1;
+		
+		my $chm_target_dir = "$output_dir/$chm_basename_noext";
+		
+		system("mkdir", "-p", $chm_target_dir) and die;
+		system("7z", "x", $chm_file, "-o${chm_target_dir}", "-aoa") and die;
+		
+		my $hhc_name = App::ChmWeb::Util::find_hhc_in($chm_target_dir);
+		my $hhc = App::ChmWeb::HHCParser::parse_hhc_file("${chm_target_dir}/${hhc_name}");
+		
+		visit_hhc_nodes($hhc->{toc}, sub
+		{
+			my ($node) = @_;
+			
+			$node->{Local} = $chm_basename_noext."/".$node->{Local} if(defined $node->{Local});
+			$node->{chm_basename} = $chm_basename;
+		});
+		
+		push(@merged_toc, @{ $hhc->{toc} });
+	}
+	
+	{
+		my $pool = App::ChmWeb::WorkerPool->new(\&process_hhc_level_do_work);
+		
+		process_hhc_level(\@merged_toc, [], \@merged_toc, $output_dir, $pool);
+		
+		# Wait for outstanding tasks
+		$pool->drain();
+	}
+}
+
+sub visit_hhc_nodes
+{
+	my ($nodes, $callback) = @_;
+	
+	foreach my $node(@$nodes)
+	{
+		$callback->($node);
+		visit_hhc_nodes($node->{children}, $callback) if(defined $node->{children});
+	}
+}
+
 sub process_hhc_level
 {
-	my ($root, $nodes, $toc_path, $chm_basename, $pool) = @_;
+	my ($toc_root, $toc_path, $nodes, $output_dir, $pool) = @_;
 	
 	my $indent_s = " " x ((scalar @$toc_path) * 4);
 	
@@ -68,65 +156,68 @@ sub process_hhc_level
 	{
 		my $node = $nodes->[$i];
 		
-		print $chm_basename, ": ", $indent_s, $node->{Name}, (defined($node->{Local}) ? " (".$node->{Local}.")" : ""), "...\n";
+		print $node->{chm_basename}, ": ", $indent_s, $node->{Name}, (defined($node->{Local}) ? " (".$node->{Local}.")" : ""), "...\n";
 		
 		if(defined $node->{Local})
 		{
 			my $orig_path = $node->{Local};
 			$orig_path =~ s/#.*$//;
 			
-			$orig_path = App::ChmWeb::Util::resolve_mixed_case_path($orig_path, undef);
-			my $content_path = ($node->{Local} =~ s/\.(\w+)$/.content.$1/r);
+			$orig_path = App::ChmWeb::Util::resolve_mixed_case_path($orig_path, $output_dir);
 			
 			if(defined $orig_path)
 			{
-				$pool->post([ $orig_path, $content_path, $root, $node, [ @$toc_path, $i ] ], sub {});
+				$pool->post([ $toc_root, [ @$toc_path, $i ], $node->{Name}, $output_dir, $orig_path ], sub {});
+				# process_hhc_level_do_work($toc_root, [ @$toc_path, $i ], $node->{Name}, $output_dir, $orig_path );
 			}
 			else{
 				warn "WARNING: Missing file referenced in hhc: ".$node->{Local}."\n";
 			}
 		}
 		
-		process_hhc_level($root, $node->{children}, [ @$toc_path, $i ], $chm_basename, $pool) if defined $node->{children};
+		process_hhc_level($toc_root, [ @$toc_path, $i ], $node->{children}, $output_dir, $pool) if defined $node->{children};
 	}
 }
 
 sub process_hhc_level_do_work
 {
-	my ($orig_path, $content_path, $root, $node, $toc_path) = @_;
+	my ($toc_root, $toc_path, $page_title, $output_dir, $page_path) = @_;
 	
-	write_content_page($orig_path, $content_path);
+	my $content_path = ($page_path =~ s/\.(\w+)$/.content.$1/r);
 	
-	write_wrapper_page($root, $node, $toc_path, $orig_path, $content_path);
+	write_content_page($page_path, $content_path, $output_dir);
+	
+	write_wrapper_page($toc_root, $toc_path, $page_title, $output_dir, $page_path, $content_path);
 }
 
 sub write_content_page
 {
-	my ($orig_path, $content_path) = @_;
+	my ($orig_path, $content_path, $output_dir) = @_;
 	
 	my $pf = App::ChmWeb::PageFixer->new();
-	$pf->load_content($orig_path);
+	$pf->load_content($orig_path, $output_dir);
 	
 	$pf->fix_image_paths();
 	$pf->fix_absolute_links();
 	$pf->set_default_link_target("_parent");
 	
-	$pf->write_content($content_path);
+	$pf->write_content("${output_dir}${content_path}");
 }
 
 sub write_wrapper_page
 {
-	my ($root, $node, $toc_path, $orig_path, $content_path) = @_;
+	my ($toc_root, $toc_path, $page_title, $output_dir, $wrapper_path, $content_path) = @_;
 	
-	my $toc = build_wrapper_toc($root, $toc_path, $content_path);
+	my $toc = build_wrapper_toc($toc_root, $toc_path, $output_dir, $wrapper_path);
 	
-	my $content_name = basename($content_path);
+	my $content_name = App::ChmWeb::Util::resolve_link($output_dir, $wrapper_path, "/".$content_path);
+	# my $content_name = basename($content_path);
 	
-	open(my $fh, ">", $orig_path) or die "$orig_path: $!";
+	open(my $fh, ">", "${output_dir}${wrapper_path}") or die "${output_dir}${wrapper_path}: $!";
 	print {$fh} <<EOF;
 <html>
 <head>
-<title>$node->{Name}</title>
+<title>$page_title</title>
 </head>
 
 <body>
@@ -141,22 +232,22 @@ EOF
 
 sub build_wrapper_toc
 {
-	my ($nodes, $toc_path, $content_path) = @_;
+	my ($toc_nodes, $toc_path, $output_dir, $wrapper_path) = @_;
 	
 	my ($toc_this, @toc_next) = @$toc_path;
 	
 	my $r = "<ul style=\"padding-left:1em;\">\n";
 	
-	for(my $i = 0; $i < @$nodes; ++$i)
+	for(my $i = 0; $i < @$toc_nodes; ++$i)
 	{
-		my $node = $nodes->[$i];
+		my $node = $toc_nodes->[$i];
 		
 		my $aa = "";
 		my $ab = "";
 		
 		if(defined $node->{Local})
 		{
-			my $href = App::ChmWeb::Util::resolve_link("", $content_path, "/".$node->{Local});
+			my $href = App::ChmWeb::Util::resolve_link($output_dir, $wrapper_path, "/".$node->{Local});
 			$aa = "<a href=\"$href\">";
 			$ab = "</a>";
 		}
@@ -170,7 +261,7 @@ sub build_wrapper_toc
 			$bb = "</b>";
 		}
 		
-		$r .= "<li>${ba}${aa}".$nodes->[$i]->{Name}."${ab}${bb}</b>\n";
+		$r .= "<li>${ba}${aa}".$toc_nodes->[$i]->{Name}."${ab}${bb}</b>\n";
 		
 		if(
 			# Node has children...
@@ -180,7 +271,7 @@ sub build_wrapper_toc
 				# ...or it doesn't have a link (wouldn't be expandable by itself)
 				|| !defined($node->{Local})))
 		{
-			$r .= build_wrapper_toc($node->{children}, \@toc_next, $content_path);
+			$r .= build_wrapper_toc($node->{children}, \@toc_next, $output_dir, $wrapper_path);
 		}
 		
 		$r .= "</li>\n";
