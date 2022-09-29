@@ -14,6 +14,7 @@ jobs:
           sudo apt-get install \
             libmodule-build-perl \
             libsgml-parser-opensp-perl \
+            libsys-info-perl \
             libhtml-parser-perl \
             libtest-spec-perl
 
