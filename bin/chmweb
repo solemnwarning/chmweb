@@ -72,10 +72,19 @@ sub process_hhc_level
 		
 		if(defined $node->{Local})
 		{
-			my $orig_path    = App::ChmWeb::Util::resolve_mixed_case_path($node->{Local}, "");
+			my $orig_path = $node->{Local};
+			$orig_path =~ s/#.*$//;
+			
+			$orig_path = App::ChmWeb::Util::resolve_mixed_case_path($orig_path, undef);
 			my $content_path = ($node->{Local} =~ s/\.(\w+)$/.content.$1/r);
 			
-			$pool->post([ $orig_path, $content_path, $root, $node, [ @$toc_path, $i ] ], sub {});
+			if(defined $orig_path)
+			{
+				$pool->post([ $orig_path, $content_path, $root, $node, [ @$toc_path, $i ] ], sub {});
+			}
+			else{
+				warn "WARNING: Missing file referenced in hhc: ".$node->{Local}."\n";
+			}
 		}
 		
 		process_hhc_level($root, $node->{children}, [ @$toc_path, $i ], $chm_basename, $pool) if defined $node->{children};

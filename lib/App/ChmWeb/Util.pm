@@ -107,6 +107,8 @@ sub resolve_link
 		$link = join("/", @new_link_dir, $link_file);
 	}
 	
+	# TODO: dir part of fs_prefix should be included in link passed to
+	# resolve_mixed_case_path, then stripped out of return.
 	my $fs_prefix = $root_directory.dirname($local_document);
 	$fs_prefix .= "/" if($fs_prefix ne "");
 	
@@ -117,6 +119,14 @@ sub resolve_link
 		$link = $resolved_link;
 	}
 	else{
+		if($orig_link =~ m/\.htm1(#|$)/i)
+		{
+			my $htm_link = ($orig_link =~ s/\.(htm)1(#|$)/.$1$2/isr);
+			$htm_link = resolve_link($root_directory, $local_document, $htm_link);
+			
+			return $htm_link if(defined $htm_link);
+		}
+		
 		warn "WARNING: Link '$orig_link' in $local_document appears to be broken\n";
 	}
 	
@@ -142,18 +152,18 @@ sub resolve_mixed_case_path
 {
 	my ($path, $prefix) = @_;
 	
-	if(-e $prefix.$path)
-	{
-		# Path exists and is already cased correctly.
-		return $path;
-	}
-	
 	if(defined $prefix)
 	{
 		$prefix .= "/";
 	}
 	else{
 		$prefix = "";
+	}
+	
+	if(-e $prefix.$path)
+	{
+		# Path exists and is already cased correctly.
+		return $path;
 	}
 	
 	my @in_parts = split(m/\//, $path);
