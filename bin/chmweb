@@ -26,6 +26,7 @@ use lib ("$FindBin::Bin/../lib/");
 use App::ChmWeb::HHCParser;
 use App::ChmWeb::PageFixer;
 use App::ChmWeb::Util;
+use App::ChmWeb::WorkerPool;
 
 main() unless caller;
 
@@ -47,12 +48,19 @@ sub main
 	
 	my $hhc = App::ChmWeb::HHCParser::parse_hhc_file($hhc_name);
 	
-	process_hhc_level($hhc->{toc}, $hhc->{toc}, [], basename($chm_in));
+	{
+		my $pool = App::ChmWeb::WorkerPool->new(\&process_hhc_level_do_work);
+		
+		process_hhc_level($hhc->{toc}, $hhc->{toc}, [], basename($chm_in), $pool);
+		
+		# Wait for outstanding tasks
+		$pool->drain();
+	}
 }
 
 sub process_hhc_level
 {
-	my ($root, $nodes, $toc_path, $chm_basename) = @_;
+	my ($root, $nodes, $toc_path, $chm_basename, $pool) = @_;
 	
 	my $indent_s = " " x ((scalar @$toc_path) * 4);
 	
@@ -67,13 +75,20 @@ sub process_hhc_level
 			my $orig_path    = App::ChmWeb::Util::resolve_mixed_case_path($node->{Local}, "");
 			my $content_path = ($node->{Local} =~ s/\.(\w+)$/.content.$1/r);
 			
-			write_content_page($orig_path, $content_path);
-			
-			write_wrapper_page($root, $node, [ @$toc_path, $i ], $orig_path, $content_path);
+			$pool->post([ $orig_path, $content_path, $root, $node, [ @$toc_path, $i ] ], sub {});
 		}
 		
-		process_hhc_level($root, $node->{children}, [ @$toc_path, $i ], $chm_basename) if defined $node->{children};
+		process_hhc_level($root, $node->{children}, [ @$toc_path, $i ], $chm_basename, $pool) if defined $node->{children};
 	}
+}
+
+sub process_hhc_level_do_work
+{
+	my ($orig_path, $content_path, $root, $node, $toc_path) = @_;
+	
+	write_content_page($orig_path, $content_path);
+	
+	write_wrapper_page($root, $node, $toc_path, $orig_path, $content_path);
 }
 
 sub write_content_page
