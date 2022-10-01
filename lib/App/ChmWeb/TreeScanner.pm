@@ -57,14 +57,16 @@ sub scan_tree
 	
 	foreach my $chm_subdir(@$chm_subdirs)
 	{
-	
 		my $hhc_name = App::ChmWeb::Util::find_hhc_in("${output_dir}${chm_subdir}");
+		
+		my $local_toc = [];
+		push(@{ $data->{toc} }, $local_toc);
 		
 		$hhc_scanner->post([ "${output_dir}${chm_subdir}${hhc_name}" ], sub
 		{
 			my ($hhc) = @_;
 			
-			_walk_hhc_level($data, $output_dir, $chm_subdir, $hhc->{toc}, $data->{toc});
+			_walk_hhc_level($data, $output_dir, $chm_subdir, $hhc->{toc}, $local_toc);
 			
 			++$hhc_scanned_count;
 			if($verbosity >= 1)
@@ -76,6 +78,11 @@ sub scan_tree
 	
 	$hhc_scanner->drain();
 	$hhc_scanner = undef;
+	
+	# Pull all the elements in toc up a level - each iteration of the above loop intially
+	# inserts its own sub-array to ensure all the TOC entries from each CHM remain grouped and
+	# in the correct order.
+	@{ $data->{toc} } = map { @$_ } @{ $data->{toc} };
 	
 	# Then, we loop over all the pages, scanning them for links to assets which need to be
 	# resolved, further pages to scan, etc, until there are no pages left.

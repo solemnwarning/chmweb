@@ -43,7 +43,7 @@ sub load_content
 {
 	my ($self, $filename, $root_directory) = @_;
 	
-	open(my $file, "<", "${root_directory}${filename}") or die "${root_directory}${filename}: $!\n";
+	open(my $file, "<", "${root_directory}${filename}") or die "${root_directory}${filename}: $!";
 	binmode($file);
 	
 	$self->{content} = do { local $/; <$file>; };
@@ -54,7 +54,7 @@ sub write_content
 {
 	my ($self, $filename) = @_;
 	
-	open(my $file, ">", $filename) or die "$filename: $!\n";
+	open(my $file, ">", $filename) or die "$filename: $!";
 	binmode($file);
 	
 	print {$file} $self->{content};

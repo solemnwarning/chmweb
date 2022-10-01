@@ -310,12 +310,19 @@ sub write_content_page
 {
 	my ($orig_path, $content_path, $output_dir, $link_map, $chm_root) = @_;
 	
-	my $pf = App::ChmWeb::ContentPageWriter->new($link_map, $chm_root);
-	$pf->load_content($orig_path, $output_dir);
+	eval {
+		my $pf = App::ChmWeb::ContentPageWriter->new($link_map, $chm_root);
+		$pf->load_content($orig_path, $output_dir);
+		
+		$pf->modify_content();
+		
+		$pf->write_content("${output_dir}${content_path}");
+	};
 	
-	$pf->modify_content();
-	
-	$pf->write_content("${output_dir}${content_path}");
+	if($@)
+	{
+		warn "write_content_page: $@\n";
+	}
 }
 
 sub write_wrapper_page
@@ -324,7 +331,7 @@ sub write_wrapper_page
 	
 	my $toc = build_wrapper_toc($toc_root, $toc_path, $output_dir, $wrapper_path, $link_map);
 	
-	open(my $fh, ">", "${output_dir}${wrapper_path}") or die "${output_dir}${wrapper_path}: $!";
+	open(my $fh, ">", "${output_dir}${wrapper_path}") or do { warn "write_wrapper_page: ${output_dir}${wrapper_path}: $!"; return; };
 	print {$fh} <<EOF;
 <html>
 <head>
