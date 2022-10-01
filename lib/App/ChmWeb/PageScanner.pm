@@ -41,6 +41,7 @@ sub scan_page
 		a_names     => $h->{a_names},
 		asset_links => $h->{asset_links},
 		page_links  => $h->{page_links},
+		title       => $h->{title},
 	};
 }
 
@@ -54,6 +55,9 @@ sub new
 		a_names     => [],
 		asset_links => [],
 		page_links  => [],
+		title       => undef,
+		processing_title => 0,
+		
 	}, $class);
 }
 
@@ -109,6 +113,31 @@ sub start_element
 		{
 			push(@{ $self->{asset_links} }, $src_attr->{value});
 		}
+	}
+	elsif(fc($elem->{Name}) eq fc("title"))
+	{
+		$self->{processing_title} = 1;
+	}
+}
+
+sub end_element
+{
+	my ($self, $elem) = @_;
+	
+	if(fc($elem->{Name}) eq fc("title"))
+	{
+		$self->{processing_title} = 0;
+	}
+}
+
+sub data
+{
+	my ($self, $elem) = @_;
+	
+	if($self->{processing_title})
+	{
+		$self->{title} //= "";
+		$self->{title} .= $elem->{Data};
 	}
 }
 

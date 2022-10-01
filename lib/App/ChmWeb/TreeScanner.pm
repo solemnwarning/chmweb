@@ -96,6 +96,7 @@ sub scan_tree
 	my %pages_queued_for_scan = ();
 	my $pages_total_count = 0;
 	my $pages_scanned_count = 0;
+	my %page_titles = ();
 	
 	while(1)
 	{
@@ -146,6 +147,8 @@ sub scan_tree
 					}
 				}
 				
+				$page_titles{$page_path} = $page_data->{title};
+				
 				++$pages_scanned_count;
 				if($verbosity >= 1 && (($pages_scanned_count % 100) == 0 || $pages_scanned_count == $pages_total_count))
 				{
@@ -167,7 +170,8 @@ sub scan_tree
 		asset_links => [ sort keys(%{ $data->{asset_links} }) ],
 		page_links  => [ sort keys(%{ $data->{page_links}  }) ],
 		
-		page_paths => [ sort keys(%pages_queued_for_scan) ],
+		page_paths  => [ sort keys(%pages_queued_for_scan) ],
+		page_titles => \%page_titles,
 		
 		toc => $data->{toc},
 	};

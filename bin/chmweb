@@ -137,7 +137,7 @@ sub multichm
 		
 		write_content_page($page_path, $content_path, $output_dir, \%link_map, $chm_root);
 		
-		write_wrapper_page($data->{toc}, $toc_path, "page title", $output_dir, $page_path, $content_path, \%link_map);
+		write_wrapper_page($data->{toc}, $toc_path, ($data->{page_titles}->{$page_path} // ""), $output_dir, $page_path, $content_path, \%link_map);
 	});
 	
 	my $pages_generated = 0;
@@ -208,11 +208,11 @@ sub generate_stub_pages
 	
 	my $stub_page_generator = App::ChmWeb::WorkerPool->new(sub
 	{
-		my ($toc_path) = @_;
+		my ($toc_path, $title) = @_;
 		
 		my $stub_path = join("_", "s", @$toc_path).".htm";
 		
-		write_wrapper_page($toc_root, $toc_path, "TODO", $output_dir, $stub_path, undef, $link_map);
+		write_wrapper_page($toc_root, $toc_path, $title, $output_dir, $stub_path, undef, $link_map);
 	});
 	
 	my $walk_toc_tree = sub
@@ -225,7 +225,7 @@ sub generate_stub_pages
 			
 			unless(defined $toc_node->{page_path})
 			{
-				$stub_page_generator->post([ $toc_path ]);
+				$stub_page_generator->post([ $toc_path, $toc_node->{name} ]);
 			}
 			
 			if(defined $toc_node->{children})
