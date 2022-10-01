@@ -31,109 +31,68 @@ package App::ChmWeb::Util;
 
 use File::Basename;
 
-=head2 resolve_link($root_directory, $local_document, $link)
-
-This method resolves a link in a document - absolute links to other files in
-the same chm are converted to relative links and any whose casing does not
-match the actual file/directory on disk are corrected.
-
-$root_directory is the filesystem path to the root of the extracted chm, with
-a trailing slash. It may be the empty string for the current working directory.
-
-$local_document is the path to the HTML document containing the link, relative
-to $root_directory.
-
-$link is the link from the document to be resolved (handle URL encoding and/or
-decoding yourself as necessary).
-
-=cut
-
-sub resolve_link
+sub doc_relative_path_to_root_relative_path
 {
-	my ($root_directory, $local_document, $link) = @_;
+	my ($rel_path, $doc_path) = @_;
 	
-	if($link =~ m/^#/)
+	my @rel_dir = grep { $_ ne "." && $_ ne "" } split(m/\//, $rel_path);
+	my $rel_name = pop(@rel_dir);
+	
+	my @doc_dir = grep { $_ ne "." && $_ ne "" } split(m/\//, $doc_path);
+	my $doc_name = pop(@doc_dir);
+	
+	my @out_path = (@doc_dir);
+	
+	foreach my $rel_dir_elem(@rel_dir)
 	{
-		# Link points to an anchor in this document.
-		# TODO: Prevent target rewrite in this case...
-		return $link;
-	}
-	
-	if($link =~ m/^\w+:/)
-	{
-		# Link points at some other site (it starts with a protocol).
-		return $link;
-	}
-	
-	my $orig_link = $link;
-	
-	my $anchor = ($link =~ m/(#.*)$/);
-	$link =~ s/(#.*)$//;
-	
-	if($link =~ m/^\//)
-	{
-		# Link is absolute - convert to be relative to current document
-		
-		my @local_dir = grep { $_ ne "" } split(m/\//, $local_document);
-		pop(@local_dir);
-		
-		my @link_dir = grep { $_ ne "" } split(m/\//, $link);
-		my $link_file = pop(@link_dir);
-		
-		my @new_link_dir = ();
-		
-		# Walk up from current directory until reaching a common ancestor with link
-		
-		for(my ($i, $flag) = (0, 0); $i < (scalar @local_dir); ++$i)
+		if($rel_dir_elem eq "..")
 		{
-			if($flag || $i > $#link_dir || fc($local_dir[$i]) ne fc($link_dir[$i]))
+			if(@out_path)
 			{
-				push(@new_link_dir, "..");
-				$flag = 1;
+				pop(@out_path);
+			}
+			else{
+				# Path escapes from root directory.
+				return undef;
 			}
 		}
-		
-		# Walk down from common ancestor into link directory
-		
-		for(my ($i, $flag) = (0, 0); $i < (scalar @link_dir); ++$i)
-		{
-			if($flag || $i > $#local_dir || fc($local_dir[$i]) ne fc($link_dir[$i]))
-			{
-				push(@new_link_dir, $link_dir[$i]);
-				$flag = 1;
-			}
+		else{
+			push(@out_path, $rel_dir_elem);
 		}
-		
-		$link = join("/", @new_link_dir, $link_file);
 	}
 	
-	# TODO: dir part of fs_prefix should be included in link passed to
-	# resolve_mixed_case_path, then stripped out of return.
-	my $fs_prefix = $root_directory.dirname($local_document);
-	$fs_prefix .= "/" if($fs_prefix ne "");
+	push(@out_path, $rel_name);
 	
-	# Resolve mismatched case in local links
-	my $resolved_link = resolve_mixed_case_path($link, $fs_prefix);
-	if($resolved_link)
+	if(grep { !defined($_) } @out_path)
 	{
-		$link = $resolved_link;
-	}
-	else{
-		if($orig_link =~ m/\.htm1(#|$)/i)
-		{
-			my $htm_link = ($orig_link =~ s/\.(htm)1(#|$)/.$1$2/isr);
-			$htm_link = resolve_link($root_directory, $local_document, $htm_link);
-			
-			return $htm_link if(defined $htm_link);
-		}
-		
-		warn "WARNING: Link '$orig_link' in $local_document appears to be broken\n";
+		die "doc_relative_path_to_root_relative_path('$rel_path', '$doc_path'";
 	}
 	
-	# Re-instate anchor (if present).
-	$link .= $anchor;
+	return join("/", @out_path);
+}
+
+sub root_relative_path_to_doc_relative_path
+{
+	my ($rel_path, $doc_path) = @_;
 	
-	return $link;
+	my @rel_dir = grep { $_ ne "." && $_ ne "" } split(m/\//, $rel_path);
+	my $rel_name = pop(@rel_dir);
+	
+	my @doc_dir = grep { $_ ne "." && $_ ne "" } split(m/\//, $doc_path);
+	my $doc_name = pop(@doc_dir);
+	
+	while(@doc_dir && @rel_dir && $doc_dir[0] eq $rel_dir[0])
+	{
+		shift(@rel_dir);
+		shift(@doc_dir);
+	}
+	
+	my @out_path = (
+		(map { ".." } @doc_dir),
+		@rel_dir,
+		$rel_name);
+	
+	return join("/", @out_path);
 }
 
 =head2 resolve_mixed_case_path($path, $prefix)

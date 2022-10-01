@@ -17,8 +17,11 @@
 use strict;
 use warnings;
 
-package App::ChmWeb::PageFixer;
+use feature qw(fc);
 
+package App::ChmWeb::ContentPageWriter;
+
+use Encode;
 use HTML::Entities;
 use SGML::Parser::OpenSP;
 
@@ -26,11 +29,11 @@ use App::ChmWeb::Util;
 
 sub new
 {
-	my ($class) = @_;
+	my ($class, $link_map, $chm_root) = @_;
 	
 	my $self = bless({
-		content => undef,
-		filename => undef,
+		link_map => $link_map,
+		chm_root => $chm_root,
 	}, $class);
 	
 	return $self;
@@ -45,19 +48,6 @@ sub load_content
 	
 	$self->{content} = do { local $/; <$file>; };
 	$self->{filename} = $filename;
-	
-	if(defined $root_directory)
-	{
-		if($root_directory !~ m/\/$/)
-		{
-			$root_directory .= "/";
-		}
-		
-		$self->{root_directory} = $root_directory;
-	}
-	else{
-		$self->{root_directory} = "";
-	}
 }
 
 sub write_content
@@ -74,23 +64,10 @@ sub write_content
 
 sub set_content
 {
-	my ($self, $content, $filename, $root_directory) = @_;
+	my ($self, $content, $filename) = @_;
 	
 	$self->{content} = $content;
 	$self->{filename} = $filename;
-	
-	if(defined $root_directory)
-	{
-		if($root_directory !~ m/\/$/)
-		{
-			$root_directory .= "/";
-		}
-		
-		$self->{root_directory} = $root_directory;
-	}
-	else{
-		$self->{root_directory} = "";
-	}
 }
 
 sub get_content
@@ -99,7 +76,7 @@ sub get_content
 	return $self->{content};
 }
 
-sub fix_image_paths
+sub modify_content
 {
 	my ($self) = @_;
 	
@@ -110,89 +87,52 @@ sub fix_image_paths
 		{
 			my ($elem_name, $elem_attributes, $location) = @_;
 			
-			if(lc($elem_name) eq "img")
+			if(fc($elem_name) eq fc("a"))
 			{
-				my ($src_attrib) = grep { lc($_->{name}) eq "src" } @$elem_attributes;
+				my ($href_attr) = grep { fc($_->{name}) eq fc("href") } @$elem_attributes;
+				my $replace_tag = 0;
 				
-				if(defined $src_attrib && defined $src_attrib->{value})
+				if(defined($href_attr) && defined($href_attr->{value}))
 				{
-					my $old_src = $src_attrib->{value};
-					my $fixed_src = App::ChmWeb::Util::resolve_link($self->{root_directory}, $self->{filename}, $old_src);
-					
-					if($fixed_src ne $old_src)
-					{
-						# Need to fix this up
-						
-						$src_attrib->{value} = $fixed_src;
-						
-						push(@replacements, $self->_tag_replacement($elem_name, $elem_attributes, $location));
-					}
-				}
-			}
-		});
-	
-	$self->_do_content_replacements(\@replacements);
-}
-
-sub fix_absolute_links
-{
-	my ($self) = @_;
-	
-	my @replacements = ();
-	
-	$self->_parse_content(
-		start_element => sub
-		{
-			my ($elem_name, $elem_attributes, $location) = @_;
-			
-			if(lc($elem_name) eq "a")
-			{
-				my ($href_attrib) = grep { lc($_->{name}) eq "href" } @$elem_attributes;
-				
-				if(defined $href_attrib && defined $href_attrib->{value})
-				{
-					my $old_href = $href_attrib->{value};
-					my $fixed_href = App::ChmWeb::Util::resolve_link($self->{root_directory}, $self->{filename}, $old_href);
+					my $old_href = $href_attr->{value};
+					my $fixed_href = $self->_resolve_link($old_href);
 					
 					if($old_href ne $fixed_href)
 					{
-						# Need to fix this up
-						
-						$href_attrib->{value} = $fixed_href;
-						
-						push(@replacements, $self->_tag_replacement($elem_name, $elem_attributes, $location));
+						$href_attr->{value} = $fixed_href;
+						$replace_tag = 1;
 					}
 				}
-			}
-		});
-	
-	$self->_do_content_replacements(\@replacements);
-}
-
-sub set_default_link_target
-{
-	my ($self, $link_target) = @_;
-	
-	my @replacements = ();
-	
-	$self->_parse_content(
-		start_element => sub
-		{
-			my ($elem_name, $elem_attributes, $location) = @_;
-			
-			if(lc($elem_name) eq "a")
-			{
-				my ($href_attrib) = grep { lc($_->{name}) eq "href" } @$elem_attributes;
-				my ($target_attrib) = grep { lc($_->{name}) eq "target" } @$elem_attributes;
 				
-				if(defined($href_attrib) && !defined($target_attrib))
+				my ($target_attr) = grep { fc($_->{name}) eq fc("target") } @$elem_attributes;
+				unless(defined($target_attr))
 				{
 					push(@$elem_attributes, {
 						name => "TARGET",
-						value => $link_target,
+						value => "_top",
 					});
 					
+					$replace_tag = 1;
+				}
+				
+				if($replace_tag)
+				{
 					push(@replacements, $self->_tag_replacement($elem_name, $elem_attributes, $location));
+				}
+			}
+			elsif(fc($elem_name) eq fc("img"))
+			{
+				my ($src_attr) = grep { fc($_->{name}) eq fc("src") } @$elem_attributes;
+				if(defined($src_attr) && defined($src_attr->{value}))
+				{
+					my $old_src = $src_attr->{value};
+					my $fixed_src = $self->_resolve_link($old_src);
+					
+					if($fixed_src ne $old_src)
+					{
+						$src_attr->{value} = $fixed_src;
+						push(@replacements, $self->_tag_replacement($elem_name, $elem_attributes, $location));
+					}
 				}
 			}
 		});
@@ -205,7 +145,7 @@ sub _parse_content
 	my ($self, %callbacks) = @_;
 	
 	my $p = SGML::Parser::OpenSP->new();
-	my $h = App::ChmWeb::PageFixer::Handler->new(\%callbacks, $p);
+	my $h = App::ChmWeb::ContentPageWriter::Handler->new(\%callbacks, $p);
 	
 	$p->catalogs(qw(xhtml.soc));
 	$p->warnings(qw(xml valid));
@@ -255,7 +195,7 @@ sub _do_content_replacements
 	{
 		my $offset      = $replacement->{offset} + $offset_adj;
 		my $old_content = $replacement->{old_content};
-		my $new_content = $replacement->{new_content};
+		my $new_content = encode("UTF-8", $replacement->{new_content});
 		
 		my $before = substr($self->{content}, 0, $offset);
 		my $at = substr($self->{content}, $offset, length($old_content));
@@ -273,7 +213,58 @@ sub _do_content_replacements
 	}
 }
 
-package App::ChmWeb::PageFixer::Handler;
+sub _resolve_link
+{
+	my ($self, $link) = @_;
+	
+	my $page_path = $self->{filename};
+	
+	if($link =~ m/^\w+:/)
+	{
+		# Link starts with a protocol, return as-is.
+		return $link;
+	}
+	
+	if($link =~ m/^#/)
+	{
+		# Link is to an anchor on the current page, return as-is.
+		# TODO: Change target of these links(?).
+		return $link;
+	}
+	
+	# Remove anchor (if present)
+	$link =~ s/(#.*)$//s;
+	my $anchor = $1 // "";
+	
+	if($link =~ m/^\//)
+	{
+		$link =~ s/^\/+//;
+		$link = $self->{chm_root}.$link;
+		
+		$page_path = "ROOT";
+	}
+	
+	my $root_relative_path = App::ChmWeb::Util::doc_relative_path_to_root_relative_path($link, $page_path);
+	if(defined $root_relative_path)
+	{
+		my $resolved_link = $self->{link_map}->{$root_relative_path};
+		if($resolved_link)
+		{
+			my $doc_relative_link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($resolved_link, $page_path);
+			return $doc_relative_link.$anchor;
+		}
+		else{
+			# TODO: Warn about broken link
+			return "#";
+		}
+	}
+	else{
+		# TODO: Log about path escaping from root
+		return "#";
+	}
+}
+
+package App::ChmWeb::ContentPageWriter::Handler;
 
 sub new
 {

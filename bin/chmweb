@@ -23,8 +23,9 @@ use File::Basename;
 use FindBin;
 use lib ("$FindBin::Bin/../lib/");
 
+use App::ChmWeb::ContentPageWriter;
 use App::ChmWeb::HHCParser;
-use App::ChmWeb::PageFixer;
+use App::ChmWeb::TreeScanner;
 use App::ChmWeb::Util;
 use App::ChmWeb::WorkerPool;
 
@@ -78,7 +79,7 @@ sub singlechm
 	});
 	
 	{
-		my $pool = App::ChmWeb::WorkerPool->new(\&process_hhc_level_do_work);
+		my $pool = App::ChmWeb::WorkerPool->new(sub { process_hhc_level_do_work($hhc->{toc}, @_) });
 		
 		process_hhc_level($hhc->{toc}, [], $hhc->{toc}, $output_dir, $pool);
 		
@@ -110,29 +111,142 @@ sub multichm
 		
 		system("mkdir", "-p", $chm_target_dir) and die;
 		system("7z", "x", $chm_file, "-o${chm_target_dir}", "-aoa") and die;
-		
-		my $hhc_name = App::ChmWeb::Util::find_hhc_in($chm_target_dir);
-		my $hhc = App::ChmWeb::HHCParser::parse_hhc_file("${chm_target_dir}/${hhc_name}");
-		
-		visit_hhc_nodes($hhc->{toc}, sub
-		{
-			my ($node) = @_;
-			
-			$node->{Local} = $chm_basename_noext."/".$node->{Local} if(defined $node->{Local});
-			$node->{chm_basename} = $chm_basename;
-		});
-		
-		push(@merged_toc, @{ $hhc->{toc} });
 	}
 	
+	STDERR->autoflush(1);
+	
+	my $verbosity = 1;
+	my $data = App::ChmWeb::TreeScanner->scan_tree($output_dir, [ map { "$_/" } keys(%chms) ], $verbosity);
+	
+	print STDERR "Resolving links...\n";
+	
+	my %link_map = map { $_ => App::ChmWeb::Util::resolve_mixed_case_path($_, $output_dir) }
+		(@{ $data->{page_links} }, @{ $data->{asset_links} });
+	
+	print STDERR "Generating pages...";
+	
+	my $page_generator = App::ChmWeb::WorkerPool->new(sub
 	{
-		my $pool = App::ChmWeb::WorkerPool->new(\&process_hhc_level_do_work);
+		my ($page_path) = @_;
 		
-		process_hhc_level(\@merged_toc, [], \@merged_toc, $output_dir, $pool);
+		my $toc_path = find_toc_path_for_page($data->{toc}, $page_path) // [];
 		
-		# Wait for outstanding tasks
-		$pool->drain();
+		my $content_path = ($page_path =~ s/\.(\w+)$/.content.$1/r);
+		
+		my ($chm_root) = grep { $page_path =~ m/^\Q$_\E\// } keys(%chms);
+		
+		write_content_page($page_path, $content_path, $output_dir, \%link_map, $chm_root);
+		
+		write_wrapper_page($data->{toc}, $toc_path, "page title", $output_dir, $page_path, $content_path, \%link_map);
+	});
+	
+	my $pages_generated = 0;
+	my $pages_total = (scalar @{ $data->{page_paths} });
+	
+	my $x = 0;
+	foreach my $page_path(@{ $data->{page_paths} })
+	{
+		$page_generator->post([ $page_path ], sub
+		{
+			++$pages_generated;
+			
+			if(($pages_generated % 100) == 0 || $pages_generated == $pages_total)
+			{
+				print STDERR "\rGenerating pages... ($pages_generated / $pages_total)";
+			}
+		});
+		
+		if(++$x == 1000)
+		{
+			#last;
+		}
 	}
+	
+	$page_generator->drain();
+	$page_generator = undef;
+	
+	print STDERR "\n";
+	
+	generate_stub_pages($data->{toc}, $output_dir, \%link_map);
+}
+
+sub find_toc_path_for_page
+{
+	my ($toc, $page_path) = @_;
+	
+	my $process_toc = sub
+	{
+		my ($process_toc, $toc_nodes, $toc_path) = @_;
+		
+		for(my $i = 0; $i < (scalar @$toc_nodes); ++$i)
+		{
+			my $toc_node = $toc_nodes->[$i];
+			
+			if(defined($toc_node->{page_path}) && $toc_node->{page_path} eq $page_path)
+			{
+				return [ @$toc_path, $i ];
+			}
+			
+			if(defined($toc_node->{children}))
+			{
+				my $r = $process_toc->($process_toc, $toc_node->{children}, [ @$toc_path, $i ]);
+				return $r if(defined $r);
+			}
+		}
+		
+		return undef;
+	};
+	
+	return $process_toc->($process_toc, $toc, []);
+}
+
+sub generate_stub_pages
+{
+	my ($toc_root, $output_dir, $link_map) = @_;
+	
+	print STDERR "Generating stub pages...";
+	
+	my $stub_page_generator = App::ChmWeb::WorkerPool->new(sub
+	{
+		my ($toc_path) = @_;
+		
+		my $stub_path = join("_", "s", @$toc_path).".htm";
+		
+		write_wrapper_page($toc_root, $toc_path, "TODO", $output_dir, $stub_path, undef, $link_map);
+	});
+	
+	my $walk_toc_tree = sub
+	{
+		my ($walk_toc_tree, $toc_nodes, $toc_path) = @_;
+		
+		for(my $i = 0; $i < (scalar @$toc_nodes); ++$i)
+		{
+			my $toc_node = $toc_nodes->[$i];
+			
+			unless(defined $toc_node->{page_path})
+			{
+				$stub_page_generator->post([ $toc_path ]);
+			}
+			
+			if(defined $toc_node->{children})
+			{
+				$walk_toc_tree->($walk_toc_tree, $toc_node->{children}, [ @$toc_path, $i ]);
+			}
+		}
+	};
+	
+	$walk_toc_tree->($walk_toc_tree, $toc_root, []);
+	
+	$stub_page_generator->drain();
+	$stub_page_generator = undef;
+	
+	print STDERR "\n";
+}
+
+sub generate_stub_page_path
+{
+	my ($toc_path) = @_;
+	return join("_", "s", @$toc_path).".htm"
 }
 
 sub visit_hhc_nodes
@@ -150,13 +264,13 @@ sub process_hhc_level
 {
 	my ($toc_root, $toc_path, $nodes, $output_dir, $pool) = @_;
 	
-	my $indent_s = " " x ((scalar @$toc_path) * 4);
+	#my $indent_s = " " x ((scalar @$toc_path) * 4);
 	
 	for(my $i = 0; $i < (scalar @$nodes); ++$i)
 	{
 		my $node = $nodes->[$i];
 		
-		print $node->{chm_basename}, ": ", $indent_s, $node->{Name}, (defined($node->{Local}) ? " (".$node->{Local}.")" : ""), "...\n";
+		#print $node->{chm_basename}, ": ", $indent_s, $node->{Name}, (defined($node->{Local}) ? " (".$node->{Local}.")" : ""), "...\n";
 		
 		if(defined $node->{Local})
 		{
@@ -167,7 +281,7 @@ sub process_hhc_level
 			
 			if(defined $orig_path)
 			{
-				$pool->post([ $toc_root, [ @$toc_path, $i ], $node->{Name}, $output_dir, $orig_path ], sub {});
+				$pool->post([ [ @$toc_path, $i ], $node->{Name}, $output_dir, $orig_path ], sub {});
 				# process_hhc_level_do_work($toc_root, [ @$toc_path, $i ], $node->{Name}, $output_dir, $orig_path );
 			}
 			else{
@@ -183,6 +297,8 @@ sub process_hhc_level_do_work
 {
 	my ($toc_root, $toc_path, $page_title, $output_dir, $page_path) = @_;
 	
+	warn "process_hhc_level_do_work: $page_path\n";
+	
 	my $content_path = ($page_path =~ s/\.(\w+)$/.content.$1/r);
 	
 	write_content_page($page_path, $content_path, $output_dir);
@@ -192,26 +308,21 @@ sub process_hhc_level_do_work
 
 sub write_content_page
 {
-	my ($orig_path, $content_path, $output_dir) = @_;
+	my ($orig_path, $content_path, $output_dir, $link_map, $chm_root) = @_;
 	
-	my $pf = App::ChmWeb::PageFixer->new();
+	my $pf = App::ChmWeb::ContentPageWriter->new($link_map, $chm_root);
 	$pf->load_content($orig_path, $output_dir);
 	
-	$pf->fix_image_paths();
-	$pf->fix_absolute_links();
-	$pf->set_default_link_target("_parent");
+	$pf->modify_content();
 	
 	$pf->write_content("${output_dir}${content_path}");
 }
 
 sub write_wrapper_page
 {
-	my ($toc_root, $toc_path, $page_title, $output_dir, $wrapper_path, $content_path) = @_;
+	my ($toc_root, $toc_path, $page_title, $output_dir, $wrapper_path, $content_path, $link_map) = @_;
 	
-	my $toc = build_wrapper_toc($toc_root, $toc_path, $output_dir, $wrapper_path);
-	
-	my $content_name = App::ChmWeb::Util::resolve_link($output_dir, $wrapper_path, "/".$content_path);
-	# my $content_name = basename($content_path);
+	my $toc = build_wrapper_toc($toc_root, $toc_path, $output_dir, $wrapper_path, $link_map);
 	
 	open(my $fh, ">", "${output_dir}${wrapper_path}") or die "${output_dir}${wrapper_path}: $!";
 	print {$fh} <<EOF;
@@ -224,7 +335,17 @@ sub write_wrapper_page
 <div style="position: fixed; top: 0px; left: 0px; height: 100%; width: 200px; overflow: scroll;">
 $toc
 </div>
-<iframe src="$content_name" style="position: fixed; top: 0px; width: calc(100% - 200px); left: 200px; height:100%;"></iframe>
+EOF
+	
+	if(defined $content_path)
+	{
+		my $local_content_path = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($content_path, $wrapper_path);
+		print {$fh} <<EOF;
+<iframe src="$local_content_path" style="position: fixed; top: 0px; width: calc(100% - 200px); left: 200px; height:100%;"></iframe>
+EOF
+	}
+	
+	print {$fh} <<EOF;
 </body>
 </html>
 EOF
@@ -232,7 +353,7 @@ EOF
 
 sub build_wrapper_toc
 {
-	my ($toc_nodes, $toc_path, $output_dir, $wrapper_path) = @_;
+	my ($toc_nodes, $toc_path, $output_dir, $wrapper_path, $link_map) = @_;
 	
 	my ($toc_this, @toc_next) = @$toc_path;
 	
@@ -245,9 +366,20 @@ sub build_wrapper_toc
 		my $aa = "";
 		my $ab = "";
 		
-		if(defined $node->{Local})
+		if(defined($node->{page_path}))
 		{
-			my $href = App::ChmWeb::Util::resolve_link($output_dir, $wrapper_path, "/".$node->{Local});
+			if(defined($link_map->{ $node->{page_path} }))
+			{
+				my $href = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link_map->{ $node->{page_path} }, $wrapper_path);
+				$aa = "<a href=\"$href\">";
+				$ab = "</a>";
+			}
+			else{
+				# die "Broken link in TOC: ".$node->{page_path};
+			}
+		}
+		else{
+			my $href = App::ChmWeb::Util::root_relative_path_to_doc_relative_path(generate_stub_page_path([ @$toc_path, $i ]), $wrapper_path);
 			$aa = "<a href=\"$href\">";
 			$ab = "</a>";
 		}
@@ -261,17 +393,22 @@ sub build_wrapper_toc
 			$bb = "</b>";
 		}
 		
-		$r .= "<li>${ba}${aa}".$toc_nodes->[$i]->{Name}."${ab}${bb}</b>\n";
+		$r .= "<li>${ba}${aa}".($toc_nodes->[$i]->{name} // "???")."${ab}${bb}</b>\n";
 		
-		if(
-			# Node has children...
-			defined($node->{children})
-				# ...the current page is at/under it...
-				&& ((defined($toc_this) && $i == $toc_this)
-				# ...or it doesn't have a link (wouldn't be expandable by itself)
-				|| !defined($node->{Local})))
+		if(defined($node->{children}))
 		{
-			$r .= build_wrapper_toc($node->{children}, \@toc_next, $output_dir, $wrapper_path);
+			# Node has children...
+			
+			if(defined($toc_this) && $i == $toc_this)
+			{
+				# ... and the current page is at/under it
+				$r .= build_wrapper_toc($node->{children}, \@toc_next, $output_dir, $wrapper_path, $link_map);
+			}
+			elsif(!defined($node->{page_path}))
+			{
+				# ...and it doesn't have a link (wouldn't be expandable by itself)
+				# $r .= build_wrapper_toc($node->{children}, [], $output_dir, $wrapper_path, $link_map);
+			}
 		}
 		
 		$r .= "</li>\n";
