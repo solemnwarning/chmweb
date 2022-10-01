@@ -46,6 +46,8 @@ sub new
 		binmode($to_child);
 		binmode($from_child);
 		binmode($to_parent);
+
+		$to_child->blocking(0);
 		
 		my $pid = fork() // die "fork: $!\n";
 		
@@ -61,10 +63,16 @@ sub new
 			$self->{workers} = undef;
 			
 			# Read jobs from the parent process.
-			while(defined(my $line = <$from_parent>))
+			my $line = "";
+			while(defined(my $read_buf = <$from_parent>))
 			{
+				$line .= $read_buf;
+				next if($line !~ m/\n$/);
+				
 				my $args = decode_json($line);
 				my $result;
+
+				$line = "";
 				
 				eval {
 					local $SIG{__WARN__} = sub
@@ -116,9 +124,6 @@ sub post
 {
 	my ($self, $func_args, $callback) = @_;
 	
-	# Pump data from workers.
-	while($self->pump(0)) {}
-	
 	# Select next worker.
 	my $worker = $self->{workers}->[ $self->{next_worker} ];
 	
@@ -131,9 +136,27 @@ sub post
 	# Add callback to queue.
 	push(@{ $worker->{queue} }, { callback => $callback });
 	
+	my $write_buf = encode_json([ @$func_args ])."\n";
+	my $write_pos = 0;
+	
+	my $s = IO::Select->new($worker->{to_child});
+	
+	while($write_pos < length($write_buf))
+	{
+		my ($can_read, $can_write, undef) = IO::Select->select($self->{select}, $s, undef);
+		
+		if(@$can_write)
+		{
+			my $len = $worker->{to_child}->syswrite($write_buf, (length($write_buf) - $write_pos), $write_pos);
+			$write_pos += $len // 0;
+		}
+		
+		while($self->pump(0)) {}
+	}
+	
 	# Dispatch work to worker.
-	print { $worker->{to_child} } encode_json([ @$func_args ]), "\n";
-	$worker->{to_child}->flush();
+	#print { $worker->{to_child} } encode_json([ @$func_args ]), "\n";
+	#$worker->{to_child}->flush();
 }
 
 sub pump
