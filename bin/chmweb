@@ -138,6 +138,8 @@ sub multichm
 		write_content_page($page_path, $content_path, $output_dir, \%link_map, $chm_root);
 		
 		write_wrapper_page($data->{toc}, $toc_path, ($data->{page_titles}->{$page_path} // ""), $output_dir, $page_path, $content_path, \%link_map);
+		
+		return;
 	});
 	
 	my $pages_generated = 0;

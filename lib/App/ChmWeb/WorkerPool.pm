@@ -71,7 +71,7 @@ sub new
 				next if($line !~ m/\n$/);
 				
 				my $args = decode_json($line);
-				my $result;
+				my @result;
 
 				$line = "";
 				
@@ -82,7 +82,7 @@ sub new
 						$to_parent->flush();
 					};
 					
-					$result = $func->(@$args);
+					@result = $func->(@$args);
 				};
 				
 				if($@ ne "")
@@ -93,7 +93,7 @@ sub new
 					exit(1);
 				}
 				
-				print {$to_parent} encode_json({ result => $result }), "\n";
+				print {$to_parent} encode_json({ result => \@result }), "\n";
 				$to_parent->flush();
 			}
 			
@@ -185,7 +185,7 @@ sub pump
 			if(defined $data->{result})
 			{
 				my $queue_front = shift(@{ $worker->{queue} });
-				$queue_front->{callback}->($data->{result});
+				$queue_front->{callback}->(@{ $data->{result} });
 			}
 			elsif(defined $data->{warning})
 			{

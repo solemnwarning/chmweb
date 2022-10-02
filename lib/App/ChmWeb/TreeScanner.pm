@@ -156,9 +156,10 @@ sub scan_tree
 				}
 			});
 		}
+		
+		$page_scanner->drain();
 	}
 	
-	$page_scanner->drain();
 	$page_scanner = undef;
 	
 	if($verbosity >= 1)

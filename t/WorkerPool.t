@@ -109,6 +109,36 @@ describe "App::ChmWeb::WorkerPool" => sub
 		
 		like($@, qr/worker exited unexpectedly/);
 	};
+	
+	it "handles no return values from function" => sub
+	{
+		my $pool = App::ChmWeb::WorkerPool->new(sub
+		{
+			return;
+		});
+		
+		my @results = ();
+		
+		$pool->post([], sub { push(@results, \@_); });
+		$pool->drain();
+		
+		cmp_deeply(\@results, [ [] ]);
+	};
+	
+	it "handles multiple return values from function" => sub
+	{
+		my $pool = App::ChmWeb::WorkerPool->new(sub
+		{
+			return (1, 2, 3);
+		});
+		
+		my @results = ();
+		
+		$pool->post([], sub { push(@results, \@_); });
+		$pool->drain();
+		
+		cmp_deeply(\@results, [ [ 1, 2, 3 ] ]);
+	};
 };
 
 runtests unless caller;
