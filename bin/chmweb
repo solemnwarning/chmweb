@@ -62,30 +62,24 @@ sub singlechm
 {
 	my ($chm_file, $output_dir) = @_;
 	
-	my $chm_basename = basename($chm_file);
-	my $chm_basename_noext = ($chm_basename =~ s/\.chm$//ir);
-	
 	system("mkdir", "-p", $output_dir) and die;
 	system("7z", "x", $chm_file, "-o${output_dir}", "-aoa") and die;
 	
-	my $hhc_name = App::ChmWeb::Util::find_hhc_in($output_dir);
-	my $hhc = App::ChmWeb::HHCParser::parse_hhc_file("${output_dir}/${hhc_name}");
+	my @chm_subdirs = ("");
 	
-	visit_hhc_nodes($hhc->{toc}, sub
-	{
-		my ($node) = @_;
-		
-		$node->{chm_basename} = $chm_basename;
-	});
+	STDERR->autoflush(1);
 	
-	{
-		my $pool = App::ChmWeb::WorkerPool->new(sub { process_hhc_level_do_work($hhc->{toc}, @_) });
-		
-		process_hhc_level($hhc->{toc}, [], $hhc->{toc}, $output_dir, $pool);
-		
-		# Wait for outstanding tasks
-		$pool->drain();
-	}
+	my $verbosity = 1;
+	my $data = App::ChmWeb::TreeScanner->scan_tree($output_dir, \@chm_subdirs, $verbosity);
+	
+	print STDERR "Resolving links...\n";
+	
+	my %link_map = map { $_ => App::ChmWeb::Util::resolve_mixed_case_path($_, $output_dir) }
+		(@{ $data->{page_links} }, @{ $data->{asset_links} });
+	
+	generate_pages($data->{toc}, $output_dir, \@chm_subdirs, $data->{page_paths}, $data->{page_titles}, \%link_map);
+	
+	generate_stub_pages($data->{toc}, $output_dir, \%link_map);
 }
 
 sub multichm
@@ -93,19 +87,19 @@ sub multichm
 	my ($chm_files, $output_dir) = @_;
 	
 	my @merged_toc = ();
-	my %chms = ();
+	my @chm_subdirs = ();
 	
 	foreach my $chm_file(@$chm_files)
 	{
 		my $chm_basename = basename($chm_file);
 		my $chm_basename_noext = ($chm_basename =~ s/\.chm$//ir);
 		
-		if($chms{$chm_basename_noext})
+		if(grep { m/^\Q$chm_basename_noext\E\/$/i } @chm_subdirs)
 		{
 			die "Multiple input files with same name ($chm_basename) on command line\n";
 		}
 		
-		$chms{$chm_basename_noext} = 1;
+		push(@chm_subdirs, "$chm_basename_noext/");
 		
 		my $chm_target_dir = "$output_dir/$chm_basename_noext";
 		
@@ -116,12 +110,21 @@ sub multichm
 	STDERR->autoflush(1);
 	
 	my $verbosity = 1;
-	my $data = App::ChmWeb::TreeScanner->scan_tree($output_dir, [ map { "$_/" } keys(%chms) ], $verbosity);
+	my $data = App::ChmWeb::TreeScanner->scan_tree($output_dir, \@chm_subdirs, $verbosity);
 	
 	print STDERR "Resolving links...\n";
 	
 	my %link_map = map { $_ => App::ChmWeb::Util::resolve_mixed_case_path($_, $output_dir) }
 		(@{ $data->{page_links} }, @{ $data->{asset_links} });
+	
+	generate_pages($data->{toc}, $output_dir, \@chm_subdirs, $data->{page_paths}, $data->{page_titles}, \%link_map);
+	
+	generate_stub_pages($data->{toc}, $output_dir, \%link_map);
+}
+
+sub generate_pages
+{
+	my ($toc_root, $output_dir, $chm_subdirs, $page_paths, $page_titles, $link_map) = @_;
 	
 	print STDERR "Generating pages...";
 	
@@ -129,24 +132,23 @@ sub multichm
 	{
 		my ($page_path) = @_;
 		
-		my $toc_path = find_toc_path_for_page($data->{toc}, $page_path) // [];
+		my $toc_path = find_toc_path_for_page($toc_root, $page_path) // [];
 		
 		my $content_path = ($page_path =~ s/\.(\w+)$/.content.$1/r);
 		
-		my ($chm_root) = grep { $page_path =~ m/^\Q$_\E/ } map { "$_/" } keys(%chms);
+		my ($chm_root) = grep { $page_path =~ m/^\Q$_\E/ } @$chm_subdirs;
 		
-		write_content_page($page_path, $content_path, $output_dir, \%link_map, $chm_root);
+		write_content_page($page_path, $content_path, $output_dir, $link_map, $chm_root);
 		
-		write_wrapper_page($data->{toc}, $toc_path, ($data->{page_titles}->{$page_path} // ""), $output_dir, $page_path, $content_path, \%link_map);
+		write_wrapper_page($toc_root, $toc_path, ($page_titles->{$page_path} // ""), $output_dir, $page_path, $content_path, $link_map);
 		
 		return;
 	});
 	
 	my $pages_generated = 0;
-	my $pages_total = (scalar @{ $data->{page_paths} });
+	my $pages_total = (scalar @$page_paths);
 	
-	my $x = 0;
-	foreach my $page_path(@{ $data->{page_paths} })
+	foreach my $page_path(@$page_paths)
 	{
 		$page_generator->post([ $page_path ], sub
 		{
@@ -157,19 +159,12 @@ sub multichm
 				print STDERR "\rGenerating pages... ($pages_generated / $pages_total)";
 			}
 		});
-		
-		if(++$x == 1000)
-		{
-			#last;
-		}
 	}
 	
 	$page_generator->drain();
 	$page_generator = undef;
 	
 	print STDERR "\n";
-	
-	generate_stub_pages($data->{toc}, $output_dir, \%link_map);
 }
 
 sub find_toc_path_for_page
@@ -249,63 +244,6 @@ sub generate_stub_page_path
 {
 	my ($toc_path) = @_;
 	return join("_", "s", @$toc_path).".htm"
-}
-
-sub visit_hhc_nodes
-{
-	my ($nodes, $callback) = @_;
-	
-	foreach my $node(@$nodes)
-	{
-		$callback->($node);
-		visit_hhc_nodes($node->{children}, $callback) if(defined $node->{children});
-	}
-}
-
-sub process_hhc_level
-{
-	my ($toc_root, $toc_path, $nodes, $output_dir, $pool) = @_;
-	
-	#my $indent_s = " " x ((scalar @$toc_path) * 4);
-	
-	for(my $i = 0; $i < (scalar @$nodes); ++$i)
-	{
-		my $node = $nodes->[$i];
-		
-		#print $node->{chm_basename}, ": ", $indent_s, $node->{Name}, (defined($node->{Local}) ? " (".$node->{Local}.")" : ""), "...\n";
-		
-		if(defined $node->{Local})
-		{
-			my $orig_path = $node->{Local};
-			$orig_path =~ s/#.*$//;
-			
-			$orig_path = App::ChmWeb::Util::resolve_mixed_case_path($orig_path, $output_dir);
-			
-			if(defined $orig_path)
-			{
-				$pool->post([ [ @$toc_path, $i ], $node->{Name}, $output_dir, $orig_path ], sub {});
-				# process_hhc_level_do_work($toc_root, [ @$toc_path, $i ], $node->{Name}, $output_dir, $orig_path );
-			}
-			else{
-				warn "WARNING: Missing file referenced in hhc: ".$node->{Local}."\n";
-			}
-		}
-		
-		process_hhc_level($toc_root, [ @$toc_path, $i ], $node->{children}, $output_dir, $pool) if defined $node->{children};
-	}
-}
-
-sub process_hhc_level_do_work
-{
-	my ($toc_root, $toc_path, $page_title, $output_dir, $page_path) = @_;
-	
-	warn "process_hhc_level_do_work: $page_path\n";
-	
-	my $content_path = ($page_path =~ s/\.(\w+)$/.content.$1/r);
-	
-	write_content_page($page_path, $content_path, $output_dir);
-	
-	write_wrapper_page($toc_root, $toc_path, $page_title, $output_dir, $page_path, $content_path);
 }
 
 sub write_content_page
