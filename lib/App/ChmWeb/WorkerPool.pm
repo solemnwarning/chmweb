@@ -60,6 +60,7 @@ sub new
 			close($to_child);
 			
 			# Discard and close our handles to the other worker processes.
+			$self->{select} = undef;
 			$self->{workers} = undef;
 			
 			# Read jobs from the parent process.
