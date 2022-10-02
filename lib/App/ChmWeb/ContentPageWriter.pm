@@ -233,8 +233,12 @@ sub _resolve_link
 	}
 	
 	# Remove anchor (if present)
-	$link =~ s/(#.*)$//s;
-	my $anchor = $1 // "";
+	my $anchor = "";
+	if($link =~ m/(#.*)$/s)
+	{
+		$anchor = $1;
+		$link =~ s/#.*$//s;
+	}
 	
 	if($link =~ m/^\//)
 	{
@@ -250,7 +254,7 @@ sub _resolve_link
 		my $resolved_link = $self->{link_map}->{$root_relative_path};
 		if($resolved_link)
 		{
-			my $doc_relative_link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($resolved_link, $page_path);
+			my $doc_relative_link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($resolved_link, $self->{filename});
 			return $doc_relative_link.$anchor;
 		}
 		else{
