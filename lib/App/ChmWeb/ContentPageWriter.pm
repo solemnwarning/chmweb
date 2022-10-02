@@ -274,13 +274,18 @@ sub new
 {
 	my ($class, $callbacks, $parser) = @_;
 	
-	my $self = bless({ callbacks => $callbacks, parser => $parser }, $class);
+	my $self = bless({ callbacks => $callbacks, parser => $parser, processing_script => 0 }, $class);
 	return $self;
 }
 
 sub start_element
 {
 	my ($self, $elem) = @_;
+	
+	if($self->{processing_script})
+	{
+		return;
+	}
 	
 	if(defined $self->{callbacks}->{start_element})
 	{
@@ -312,6 +317,21 @@ sub start_element
 		}
 		
 		$self->{callbacks}->{start_element}->($elem->{Name}, \@attributes, $self->{parser}->get_location());
+	}
+	
+	if(fc($elem->{Name}) eq fc("script"))
+	{
+		$self->{processing_script} = 1;
+	}
+}
+
+sub end_element
+{
+	my ($self, $elem) = @_;
+	
+	if(fc($elem->{Name}) eq fc("script"))
+	{
+		$self->{processing_script} = 0;
 	}
 }
 

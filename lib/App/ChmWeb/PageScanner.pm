@@ -57,13 +57,18 @@ sub new
 		page_links  => [],
 		title       => undef,
 		processing_title => 0,
-		
+		processing_script => 0,
 	}, $class);
 }
 
 sub start_element
 {
 	my ($self, $elem) = @_;
+	
+	if($self->{processing_script})
+	{
+		return;
+	}
 	
 	my @attributes = ();
 	
@@ -118,6 +123,10 @@ sub start_element
 	{
 		$self->{processing_title} = 1;
 	}
+	elsif(fc($elem->{Name}) eq fc("script"))
+	{
+		$self->{processing_script} = 1;
+	}
 }
 
 sub end_element
@@ -128,11 +137,20 @@ sub end_element
 	{
 		$self->{processing_title} = 0;
 	}
+	elsif(fc($elem->{Name}) eq fc("script"))
+	{
+		$self->{processing_script} = 0;
+	}
 }
 
 sub data
 {
 	my ($self, $elem) = @_;
+	
+	if($self->{processing_script})
+	{
+		return;
+	}
 	
 	if($self->{processing_title})
 	{
