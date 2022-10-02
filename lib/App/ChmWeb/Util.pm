@@ -31,6 +31,8 @@ package App::ChmWeb::Util;
 
 use File::Basename;
 
+use App::ChmWeb::FilesystemCache;
+
 sub doc_relative_path_to_root_relative_path
 {
 	my ($rel_path, $doc_path) = @_;
@@ -119,7 +121,7 @@ sub resolve_mixed_case_path
 		$prefix = "";
 	}
 	
-	if(-e $prefix.$path)
+	if(App::ChmWeb::FilesystemCache->e($prefix.$path))
 	{
 		# Path exists and is already cased correctly.
 		return $path;
@@ -134,32 +136,27 @@ sub resolve_mixed_case_path
 		my $p_parent = $prefix.join("/", @resolved_parts);
 		my $p_path = $prefix.join("/", @resolved_parts, $p);
 		
-		if(-e $p_path)
+		if(App::ChmWeb::FilesystemCache->e($p_path))
 		{
 			push(@resolved_parts, $p);
 		}
 		else{
-			if(!-d $p_parent)
+			if(!App::ChmWeb::FilesystemCache->d($p_parent))
 			{
 				return undef;
 			}
 			
-			if(opendir(my $d, $p_parent))
+			my $children_fc_map = App::ChmWeb::FilesystemCache->dir_children_fc($p_parent);
+			
+			my $p_found = $children_fc_map->{ fc($p) };
+			if(defined $p_found)
 			{
-				foreach my $sibling_name(readdir($d))
-				{
-					if(lc($sibling_name) eq lc($p))
-					{
-						push(@resolved_parts, $sibling_name);
-						next P;
-					}
-				}
+				push(@resolved_parts, $p_found);
+				next P;
 			}
 			else{
-				warn "$p_parent: $!\n";
+				return undef;
 			}
-			
-			return undef;
 		}
 	}
 	
