@@ -27,6 +27,7 @@ my $build = Module::Build->new
 	requires => {
 		"File::Basename" => 0,
 		"HTML::Entities" => 0,
+		"IO::Compress::Gzip" => 0,
 		"SGML::Parser::OpenSP" => 0,
 		"Sys::Info::Base" => 0,
 	},

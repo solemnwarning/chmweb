@@ -19,6 +19,7 @@ use strict;
 use warnings;
 
 use File::Basename;
+use IO::Compress::Gzip qw(gzip $GzipError);
 
 use FindBin;
 use lib ("$FindBin::Bin/../lib/");
@@ -29,10 +30,29 @@ use App::ChmWeb::TreeScanner;
 use App::ChmWeb::Util;
 use App::ChmWeb::WorkerPool;
 
+my $gzip_pages = 0;
+
 main() unless caller;
 
 sub main
 {
+	for(my $i = 0; $i < (scalar @ARGV);)
+	{
+		if($ARGV[$i] eq "--gzip-pages")
+		{
+			splice(@ARGV, $i, 1);
+			$gzip_pages = 1;
+		}
+		elsif($ARGV[$i] eq "--")
+		{
+			splice(@ARGV, $i, 1);
+			last;
+		}
+		else{
+			++$i;
+		}
+	}
+	
 	my $command = shift(@ARGV) // "";
 	
 	if($command eq "single-chm" && (scalar @ARGV) == 2)
@@ -53,8 +73,8 @@ sub main
 		multichm(\@chm_files, $output_dir);
 	}
 	else{
-		die "Usage: $0 single-chm <input.chm> <output directory>\n"
-		   ."       $0 multi-chm <input1.chm> <input2.chm> ... <output directory>\n";
+		die "Usage: $0 [--gzip-pages] single-chm <input.chm> <output directory>\n"
+		   ."       $0 [--gzip-pages] multi-chm <input1.chm> <input2.chm> ... <output directory>\n";
 	}
 }
 
@@ -256,7 +276,19 @@ sub write_content_page
 		
 		$pf->modify_content();
 		
-		$pf->write_content("${output_dir}${content_path}");
+		if($gzip_pages)
+		{
+			my $content = $pf->get_content();
+			
+			gzip(\$content, "${output_dir}${content_path}.gz")
+				or die "Unable to write ${output_dir}${content_path}.gz: $GzipError";
+			
+			unlink("${output_dir}${orig_path}")
+				or warn "Unable to delete ${output_dir}${orig_path}: $!";
+		}
+		else{
+			$pf->write_content("${output_dir}${content_path}");
+		}
 	};
 	
 	if($@)
@@ -271,8 +303,7 @@ sub write_wrapper_page
 	
 	my $toc = build_wrapper_toc($toc_root, [], $toc_path, $output_dir, $wrapper_path, $link_map);
 	
-	open(my $fh, ">", "${output_dir}${wrapper_path}") or do { warn "write_wrapper_page: ${output_dir}${wrapper_path}: $!"; return; };
-	print {$fh} <<EOF;
+	my $content = <<EOF;
 <html>
 <head>
 <title>$page_title</title>
@@ -287,15 +318,30 @@ EOF
 	if(defined $content_path)
 	{
 		my $local_content_path = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($content_path, $wrapper_path);
-		print {$fh} <<EOF;
+		$content .= <<EOF;
 <iframe src="$local_content_path" style="position: fixed; top: 0px; width: calc(100% - 200px); left: 200px; height:100%;"></iframe>
 EOF
 	}
 	
-	print {$fh} <<EOF;
+	$content .= <<EOF;
 </body>
 </html>
 EOF
+	
+	if($gzip_pages)
+	{
+		gzip(\$content, "${output_dir}${wrapper_path}.gz")
+			or warn "write_wrapper_page: Unable to write ${output_dir}${wrapper_path}.gz: $GzipError\n";
+	}
+	else{
+		if(open(my $fh, ">", "${output_dir}${wrapper_path}"))
+		{
+			print {$fh} $content;
+		}
+		else{
+			warn "write_wrapper_page: Unable to write ${output_dir}${wrapper_path}: $!\n";
+		}
+	}
 }
 
 sub build_wrapper_toc
