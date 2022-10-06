@@ -20,7 +20,7 @@ use warnings;
 package App::ChmWeb::WorkerPool;
 
 use IO::Select;
-use JSON qw(encode_json decode_json);
+use Storable qw(freeze thaw);
 use Sys::Info::Device::CPU;
 
 sub new
@@ -63,38 +63,58 @@ sub new
 			$self->{select} = undef;
 			$self->{workers} = undef;
 			
-			# Read jobs from the parent process.
-			my $line = "";
-			while(defined(my $read_buf = <$from_parent>))
+			my $write_to_parent = sub
 			{
-				$line .= $read_buf;
-				next if($line !~ m/\n$/);
+				my ($data) = @_;
 				
-				my $args = decode_json($line);
-				my @result;
-
-				$line = "";
+				my $buf = freeze($data);
 				
-				eval {
-					local $SIG{__WARN__} = sub
-					{
-						print {$to_parent} encode_json({ warning => $_[0] }), "\n";
-						$to_parent->flush();
-					};
-					
-					@result = $func->(@$args);
-				};
+				print {$to_parent} pack("L", length($buf)), $buf;
+				$to_parent->flush();
+			};
+			
+			my $read_buf = "";
+			
+			# Read jobs from the parent process.
+			while(1)
+			{
+				my $r = $from_parent->sysread($read_buf, 1024, length($read_buf))
+					// die "read: $!";
 				
-				if($@ ne "")
+				if($r == 0)
 				{
-					print {$to_parent} encode_json({ error => $@ }), "\n";
-					$to_parent->flush();
-					
-					exit(1);
+					# Parent closed the pipe.
+					last;
 				}
 				
-				print {$to_parent} encode_json({ result => \@result }), "\n";
-				$to_parent->flush();
+				# Process any complete messages in the buffer
+				while(length($read_buf) >= 4 && length($read_buf) >= unpack("L", $read_buf) + 4)
+				{
+					my $len = unpack("L", $read_buf);
+					
+					my $line = substr($read_buf, 4, $len);
+					$read_buf = substr($read_buf, (4 + $len));
+					
+					my $args = thaw($line);
+					my @result;
+					
+					eval {
+						local $SIG{__WARN__} = sub
+						{
+							$write_to_parent->({ warning => $_[0] });
+						};
+						
+						@result = $func->(@$args);
+					};
+					
+					if($@ ne "")
+					{
+						$write_to_parent->({ error => $@ });
+						exit(1);
+					}
+					
+					$write_to_parent->({ result => \@result });
+				}
 			}
 			
 			# We're done. Exit.
@@ -137,7 +157,8 @@ sub post
 	# Add callback to queue.
 	push(@{ $worker->{queue} }, { callback => $callback });
 	
-	my $write_buf = encode_json([ @$func_args ])."\n";
+	my $write_buf = freeze([ @$func_args ]);
+	$write_buf = pack("L", length($write_buf)).$write_buf;
 	my $write_pos = 0;
 	
 	my $s = IO::Select->new($worker->{to_child});
@@ -174,13 +195,15 @@ sub pump
 		my $r = $worker->{from_child}->sysread($worker->{read_buf}, 1024, length($worker->{read_buf}))
 			// die "read: $!";
 		
-		# Process any complete lines (JSON strings) in the buffer
-		while($worker->{read_buf} =~ m/^(.*\n)/)
+		# Process any complete messages in the buffer
+		while(length($worker->{read_buf}) >= 4 && length($worker->{read_buf}) >= unpack("L", $worker->{read_buf}) + 4)
 		{
-			my $line = $1;
-			$worker->{read_buf} =~ s/^(.*\n)//;
+			my $len = unpack("L", $worker->{read_buf});
 			
-			my $data = decode_json($line);
+			my $line = substr($worker->{read_buf}, 4, $len);
+			$worker->{read_buf} = substr($worker->{read_buf}, (4 + $len));
+			
+			my $data = thaw($line);
 			
 			if(defined $data->{result})
 			{
