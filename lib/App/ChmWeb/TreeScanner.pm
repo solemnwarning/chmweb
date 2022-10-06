@@ -24,13 +24,15 @@ package App::ChmWeb::TreeScanner;
 use HTML::Entities;
 use SGML::Parser::OpenSP;
 
+use App::ChmWeb::AKLinkTable;
 use App::ChmWeb::PageScanner;
 use App::ChmWeb::Util;
+use App::ChmWeb::TreeData;
 use App::ChmWeb::WorkerPool;
 
 sub scan_tree
 {
-	my ($class, $output_dir, $chm_subdirs, $verbosity) = @_;
+	my ($class, $output_dir, $chm_subdir_pairs, $chi, $verbosity) = @_;
 	
 	$verbosity //= 0;
 	
@@ -40,10 +42,28 @@ sub scan_tree
 		asset_links     => {},
 		page_links      => {},
 		
-		a_names => [],
-		
 		toc => [],
 	};
+	
+	# Add any pages referenced in the ALink/KLink maps to the queue of pages to be scanned.
+	foreach my $item(map { @$_ } (values(%{ $chi->get_all_alinks() }), values(%{ $chi->get_all_klinks() })))
+	{
+		if(defined $item->{Local})
+		{
+			my $page_link_path = _get_link_path($item->{Local}, "ROOT", "");
+			if(defined $page_link_path)
+			{
+				if(!$data->{page_links}->{$page_link_path})
+				{
+					$data->{page_links}->{$page_link_path} = 1;
+					push(@{ $data->{page_links_to_scan} }, $page_link_path);
+				}
+			}
+			else{
+				warn $item->{Local};
+			}
+		}
+	}
 	
 	# First, we scan the HHCs to build the TOC and find any linked pages...
 	
@@ -55,8 +75,11 @@ sub scan_tree
 	my $hhc_scanner = App::ChmWeb::WorkerPool->new(\&App::ChmWeb::HHCParser::parse_hhc_file);
 	my $hhc_scanned_count = 0;
 	
-	foreach my $chm_subdir(@$chm_subdirs)
+	foreach my $chm_subdir_pair(@$chm_subdir_pairs)
 	{
+		my $chm_name = $chm_subdir_pair->[0];
+		my $chm_subdir = $chm_subdir_pair->[1];
+		
 		my $hhc_name = App::ChmWeb::Util::find_hhc_in("${output_dir}${chm_subdir}");
 		
 		my $local_toc = [];
@@ -71,7 +94,7 @@ sub scan_tree
 			++$hhc_scanned_count;
 			if($verbosity >= 1)
 			{
-				print STDERR "\rScanning contents... ($hhc_scanned_count / ", (scalar @$chm_subdirs), ")";
+				print STDERR "\rScanning contents... ($hhc_scanned_count / ", (scalar @$chm_subdir_pairs), ")";
 			}
 		});
 	}
@@ -96,7 +119,7 @@ sub scan_tree
 	my %pages_queued_for_scan = ();
 	my $pages_total_count = 0;
 	my $pages_scanned_count = 0;
-	my %page_titles = ();
+	my %pages = ();
 	
 	while(1)
 	{
@@ -123,7 +146,13 @@ sub scan_tree
 			{
 				my ($page_data) = @_;
 				
-				my ($chm_subdir) = grep { $page_path =~ m/^\Q$_\E/ } @$chm_subdirs;
+				my ($chm_subdir_pair) = grep { my $subdir = $_->[1]; $page_path =~ m/^\Q$subdir\E/ } @$chm_subdir_pairs;
+				
+				my $chm_name = $chm_subdir_pair->[0];
+				my $chm_subdir = $chm_subdir_pair->[1];
+				
+				$page_data->{chm_name} = $chm_name;
+				$page_data->{page_path} = $page_path;
 				
 				foreach my $asset_link(@{ $page_data->{asset_links} })
 				{
@@ -147,7 +176,7 @@ sub scan_tree
 					}
 				}
 				
-				$page_titles{$page_path} = $page_data->{title};
+				$pages{$page_path} = $page_data;
 				
 				++$pages_scanned_count;
 				if($verbosity >= 1 && (($pages_scanned_count % 100) == 0 || $pages_scanned_count == $pages_total_count))
@@ -167,15 +196,17 @@ sub scan_tree
 		print STDERR "\nScanned ", (scalar keys(%pages_queued_for_scan)), " pages, found ", (scalar keys(%{ $data->{page_links} })), " unique page links and ", (scalar keys(%{ $data->{asset_links} })), " unique asset links\n";
 	}
 	
-	return {
-		asset_links => [ sort keys(%{ $data->{asset_links} }) ],
-		page_links  => [ sort keys(%{ $data->{page_links}  }) ],
-		
-		page_paths  => [ sort keys(%pages_queued_for_scan) ],
-		page_titles => \%page_titles,
-		
-		toc => $data->{toc},
-	};
+	my $td_o = App::ChmWeb::TreeData->new();
+	
+	$td_o->{asset_links} = [ sort keys(%{ $data->{asset_links} }) ];
+	$td_o->{page_links}  = [ sort keys(%{ $data->{page_links}  }) ];
+	
+	$td_o->{pages} = \%pages;
+	
+	$td_o->{toc} = $data->{toc};
+	$td_o->{chi} = $chi;
+	
+	return $td_o;
 }
 
 sub _walk_hhc_level

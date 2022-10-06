@@ -40,6 +40,8 @@ sub doc_relative_path_to_root_relative_path
 	my @rel_dir = grep { $_ ne "." && $_ ne "" } split(m/\//, $rel_path);
 	my $rel_name = pop(@rel_dir);
 	
+	return undef unless(defined $rel_name);
+	
 	my @doc_dir = grep { $_ ne "." && $_ ne "" } split(m/\//, $doc_path);
 	my $doc_name = pop(@doc_dir);
 	
@@ -64,11 +66,6 @@ sub doc_relative_path_to_root_relative_path
 	}
 	
 	push(@out_path, $rel_name);
-	
-	if(grep { !defined($_) } @out_path)
-	{
-		die "doc_relative_path_to_root_relative_path('$rel_path', '$doc_path'";
-	}
 	
 	return join("/", @out_path);
 }

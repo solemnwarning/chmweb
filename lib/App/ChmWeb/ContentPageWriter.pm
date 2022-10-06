@@ -29,11 +29,13 @@ use App::ChmWeb::Util;
 
 sub new
 {
-	my ($class, $link_map, $chm_root) = @_;
+	my ($class, $link_map, $chm_root, $tree_data, $page_data) = @_;
 	
 	my $self = bless({
 		link_map => $link_map,
 		chm_root => $chm_root,
+		tree_data => $tree_data,
+		page_data => $page_data,
 	}, $class);
 	
 	return $self;
@@ -95,7 +97,7 @@ sub modify_content
 				if(defined($href_attr) && defined($href_attr->{value}))
 				{
 					my $old_href = $href_attr->{value};
-					my $fixed_href = $self->_resolve_link($old_href);
+					my $fixed_href = $self->_resolve_link($old_href, $location);
 					
 					if($old_href ne $fixed_href)
 					{
@@ -126,7 +128,7 @@ sub modify_content
 				if(defined($src_attr) && defined($src_attr->{value}))
 				{
 					my $old_src = $src_attr->{value};
-					my $fixed_src = $self->_resolve_link($old_src);
+					my $fixed_src = $self->_resolve_link($old_src, $location);
 					
 					if($fixed_src ne $old_src)
 					{
@@ -215,9 +217,74 @@ sub _do_content_replacements
 
 sub _resolve_link
 {
-	my ($self, $link) = @_;
+	my ($self, $link, $location) = @_;
 	
 	my $page_path = $self->{filename};
+	
+	if($link =~ m/^JavaScript:(\w+)\.Click()/)
+	{
+		# This is probably a link using the HTML Help ActiveX control.
+		# We need to resolve it to a plain link...
+		
+		my $object_id = $1;
+		my ($object) = grep { ($_->get_attribute("id") // "") eq $object_id } $self->{page_data}->objects();
+		
+		if(defined($object) && $object->is_hh_activex_control())
+		{
+			my $command = $object->get_parameter("Command") // "<UNSET>";
+			
+			if($command =~ m/^ALink(,.*)?/)
+			{
+				my $fallback_link = $object->get_parameter("DEFAULTTOPIC");
+				my $chm_name      = $object->get_parameter("ITEM1") || $self->{page_data}->chm_name();
+				my $alink_name    = $object->get_parameter("ITEM2");
+				
+				my @topics = $self->{tree_data}->{chi}->get_alink_by_key($alink_name);
+				
+				if((scalar @topics) == 1)
+				{
+					# There is one topic for this ALink, jump straight to it.
+					
+					if(defined $topics[0]->{Local})
+					{
+						my $rel_target_path = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($topics[0]->{Local}, $self->{filename});
+						$link = "${rel_target_path}#${alink_name}";
+					}
+					else{
+						warn "Not a local topic '$alink_name' for ALink $object_id at ".$self->{filename}." line ".$location->{LineNumber}."\n";
+						$link = $fallback_link if(defined $fallback_link);
+					}
+				}
+				elsif((scalar @topics) == 0)
+				{
+					# No matches for this ALink, use the fallback URL.
+					
+					warn "Couldn't find ALink '$alink_name' in '$chm_name' for $object_id at ".$self->{filename}." line ".$location->{LineNumber}."\n";
+					$link = $fallback_link if(defined $fallback_link);
+				}
+				else{
+					# There are multiple topics for this ALink, go to a page
+					# listing them. TODO: JS-spawned iframe at cursor...
+					
+					if(defined $self->{tree_data}->{alink_page_map}->{$alink_name})
+					{
+						$link = $self->{tree_data}->{alink_page_map}->{$alink_name};
+						$link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link, $self->{filename});
+						
+						return $link;
+					}
+					
+					$link = $fallback_link if(defined $fallback_link);
+				}
+			}
+			else{
+				warn "Unimplemented Command '$command' in $object_id at ".$self->{filename}." line ".$location->{LineNumber}."\n";
+			}
+		}
+		else{
+			warn "'$link' refers to unknown ActiveX object at ".$self->{filename}." line ".$location->{LineNumber}."\n";
+		}
+	}
 	
 	if($link =~ m/^\w+:/)
 	{
@@ -258,12 +325,12 @@ sub _resolve_link
 			return $doc_relative_link.$anchor;
 		}
 		else{
-			# TODO: Warn about broken link
+			warn "'$link' appears to be broken at ".$self->{filename}." line ".$location->{LineNumber}."\n";
 			return "#";
 		}
 	}
 	else{
-		# TODO: Log about path escaping from root
+		warn "'$link' is outside of tree at ".$self->{filename}." line ".$location->{LineNumber}."\n";
 		return "#";
 	}
 }
