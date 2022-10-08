@@ -250,6 +250,11 @@ sub load_chw
 	# Don't need the files any more.
 	delete $self->{files};
 	
+	foreach my $topics_list(values(%{ $self->{alinks} }), values(%{ $self->{klinks} }))
+	{
+		@$topics_list = _sort_and_uniq_topics(@$topics_list);
+	}
+	
 	return $self;
 }
 
@@ -620,6 +625,55 @@ sub get_chx_names
 	carp("Not loaded from a .chw file") unless(defined $self->{chx_names});
 	
 	return @{ $self->{chx_names} };
+}
+
+sub _sort_and_uniq_topics
+{
+	my (@topics_in) = @_;
+	
+	my @topics_out = ();
+	
+	IN: foreach my $t(@topics_in)
+	{
+		foreach my $u(@topics_out)
+		{
+			if(_topic_cmp($t, $u) == 0)
+			{
+				next IN;
+			}
+		}
+		
+		push(@topics_out, $t);
+	}
+	
+	@topics_out = sort { _topic_cmp($a, $b) } @topics_out;
+	
+	return @topics_out;
+}
+
+sub _topic_cmp
+{
+	my ($topic_a, $topic_b) = @_;
+	
+	if(defined($topic_a->{Name}) && defined($topic_b->{Name}))
+	{
+		if($topic_a->{Name} ne $topic_b->{Name})
+		{
+			return $topic_a->{Name} cmp $topic_b->{Name};
+		}
+		else{
+			my $as = join("\0", map { $_, ($topic_a->{$_} // "<undef>") } sort grep { $_ ne "Name" } keys(%$topic_a));
+			my $bs = join("\0", map { $_, ($topic_b->{$_} // "<undef>") } sort grep { $_ ne "Name" } keys(%$topic_b));
+			
+			return $as cmp $bs;
+		}
+	}
+	else{
+		my $as = join("\0", map { $_, ($topic_a->{$_} // "<undef>") } sort keys(%$topic_a));
+		my $bs = join("\0", map { $_, ($topic_b->{$_} // "<undef>") } sort keys(%$topic_b));
+		
+		return $as cmp $bs;
+	}
 }
 
 1;
