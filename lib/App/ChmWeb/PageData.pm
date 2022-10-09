@@ -43,6 +43,7 @@ sub new
 	my $self = bless({
 			chm_name  => undef, # "foo.chm"
 			page_path => undef, # "foo/html/bar.htm"
+			toc_path  => undef, # [ 0, 1, 2 ]
 			
 			asset_links  => [],
 			page_links   => [],
@@ -77,6 +78,21 @@ sub page_path
 {
 	my ($self) = @_;
 	return $self->{page_path};
+}
+
+=head2 toc_path()
+
+Returns the path to this page in the ToC as a list of indices.
+
+Returns empty list if not in the ToC.
+
+=cut
+
+sub toc_path
+{
+	my ($self) = @_;
+	
+	return @{ $self->{toc_path} // [] };
 }
 
 =head2 title()

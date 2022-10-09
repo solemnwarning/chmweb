@@ -92,29 +92,36 @@ sub modify_content
 			if(fc($elem_name) eq fc("a"))
 			{
 				my ($href_attr) = grep { fc($_->{name}) eq fc("href") } @$elem_attributes;
+				my ($target_attr) = grep { fc($_->{name}) eq fc("target") } @$elem_attributes;
+				
 				my $replace_tag = 0;
 				
 				if(defined($href_attr) && defined($href_attr->{value}))
 				{
 					my $old_href = $href_attr->{value};
-					my $fixed_href = $self->_resolve_link($old_href, $location);
+					my ($fixed_href, $link_target, $link_class) = $self->_resolve_link($old_href, $location);
 					
 					if($old_href ne $fixed_href)
 					{
 						$href_attr->{value} = $fixed_href;
 						$replace_tag = 1;
 					}
-				}
-				
-				my ($target_attr) = grep { fc($_->{name}) eq fc("target") } @$elem_attributes;
-				unless(defined($target_attr))
-				{
-					push(@$elem_attributes, {
-						name => "TARGET",
-						value => "_top",
-					});
 					
-					$replace_tag = 1;
+					if(defined $link_target)
+					{
+						if(defined $target_attr)
+						{
+							$target_attr->{value} = $link_target;
+						}
+						else{
+							push(@$elem_attributes, {
+								name => "TARGET",
+								value => $link_target,
+							});
+						}
+						
+						$replace_tag = 1;
+					}
 				}
 				
 				if($replace_tag)
@@ -128,7 +135,7 @@ sub modify_content
 				if(defined($src_attr) && defined($src_attr->{value}))
 				{
 					my $old_src = $src_attr->{value};
-					my $fixed_src = $self->_resolve_link($old_src, $location);
+					my ($fixed_src) = $self->_resolve_link($old_src, $location);
 					
 					if($fixed_src ne $old_src)
 					{
@@ -221,6 +228,10 @@ sub _resolve_link
 	
 	my $page_path = $self->{filename};
 	
+	my $link_target = undef;
+	my $link_class = undef;
+	my $link_mapped = 0;
+	
 	if($link =~ m/^JavaScript:(\w+)\.Click()/)
 	{
 		# This is probably a link using the HTML Help ActiveX control.
@@ -271,10 +282,12 @@ sub _resolve_link
 						$link = $self->{tree_data}->{alink_page_map}->{$alink_name};
 						$link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link, $self->{filename});
 						
-						return $link;
+						$link_class = "chmweb-multi-link";
+						$link_mapped = 1;
 					}
-					
-					$link = $fallback_link if(defined $fallback_link);
+					else{
+						$link = $fallback_link if(defined $fallback_link);
+					}
 				}
 			}
 			else{
@@ -318,11 +331,41 @@ sub _resolve_link
 	my $root_relative_path = App::ChmWeb::Util::doc_relative_path_to_root_relative_path($link, $page_path);
 	if(defined $root_relative_path)
 	{
-		my $resolved_link = $self->{link_map}->{$root_relative_path};
-		if($resolved_link)
+		# Links extracted from the original HTML are mapped via link_map to resolve any
+		# differences in case between the document/filesystem, links generated internally
+		# (e.g. to ALink/KLink multi-choice pages) are already correctly-cased and will
+		# not in link_map, so bypass this.
+		
+		my $resolved_link = $link_mapped
+			? $root_relative_path
+			: $self->{link_map}->{$root_relative_path};
+		
+		if(defined $resolved_link)
 		{
+			my $link_page_data = $self->{tree_data}->get_page_data($resolved_link);
+			if(defined $link_page_data)
+			{
+				# If the link points to a PAGE in the collection, then we have
+				# some extra special-ness to apply...
+				#
+				# - If the page exists in the ToC, the target is set to _top so
+				#   that the wrapper page replaces the current wrapper page.
+				#
+				# - If the page ISN'T in the ToC, then we keep the target in the
+				#   content iframe and redirect the URL to the content page.
+				
+				my @link_toc_path = $link_page_data->toc_path();
+				if(@link_toc_path)
+				{
+					$link_target = "_top";
+				}
+				else{
+					$resolved_link =~ s/\.(\w+)$/.content.$1/;
+				}
+			}
+			
 			my $doc_relative_link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($resolved_link, $self->{filename});
-			return $doc_relative_link.$anchor;
+			return $doc_relative_link.$anchor, $link_target, $link_class;
 		}
 		else{
 			warn "'$link' appears to be broken at ".$self->{filename}." line ".$location->{LineNumber}."\n";

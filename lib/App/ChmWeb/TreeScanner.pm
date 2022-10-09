@@ -206,6 +206,29 @@ sub scan_tree
 	$td_o->{toc} = $data->{toc};
 	$td_o->{chi} = $chi;
 	
+	# Set the toc_path of the PageData object for each page referenced by the ToC.
+	$td_o->visit_toc_nodes(sub
+	{
+		my ($toc_node, $toc_path) = @_;
+		
+		if(defined $toc_node->{page_path})
+		{
+			my $page_path = App::ChmWeb::Util::resolve_mixed_case_path($toc_node->{page_path}, $output_dir);
+			if(defined $page_path)
+			{
+				my $page_data = $td_o->{pages}->{$page_path};
+				
+				if(defined $page_data)
+				{
+					$page_data->{toc_path} //= $toc_path;
+				}
+				else{
+					warn "Missing page in App::ChmWeb::TreeData::pages: $page_path";
+				}
+			}
+		}
+	});
+	
 	return $td_o;
 }
 

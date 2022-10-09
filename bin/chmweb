@@ -242,7 +242,7 @@ sub generate_pages
 		my $page_data = $tree_data->get_page_data($page_path)
 			// die "Missing page data for $page_path";
 		
-		my $toc_path = find_toc_path_for_page($toc_root, $page_path) // [];
+		my $toc_path = [ $page_data->toc_path() ];
 		
 		my $content_path = ($page_path =~ s/\.(\w+)$/.content.$1/r);
 		
@@ -277,36 +277,6 @@ sub generate_pages
 	$page_generator = undef;
 	
 	print STDERR "\n";
-}
-
-sub find_toc_path_for_page
-{
-	my ($toc, $page_path) = @_;
-	
-	my $process_toc = sub
-	{
-		my ($process_toc, $toc_nodes, $toc_path) = @_;
-		
-		for(my $i = 0; $i < (scalar @$toc_nodes); ++$i)
-		{
-			my $toc_node = $toc_nodes->[$i];
-			
-			if(defined($toc_node->{page_path}) && $toc_node->{page_path} eq $page_path)
-			{
-				return [ @$toc_path, $i ];
-			}
-			
-			if(defined($toc_node->{children}))
-			{
-				my $r = $process_toc->($process_toc, $toc_node->{children}, [ @$toc_path, $i ]);
-				return $r if(defined $r);
-			}
-		}
-		
-		return undef;
-	};
-	
-	return $process_toc->($process_toc, $toc, []);
 }
 
 sub generate_stub_pages
