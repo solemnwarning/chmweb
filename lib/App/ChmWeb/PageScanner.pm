@@ -43,7 +43,6 @@ sub scan_page
 	my $data = App::ChmWeb::PageData->new();
 	
 	   $data->{title}          =    $h->{title};
-	@{ $data->{anchor_names} } = @{ $h->{a_names} };
 	@{ $data->{asset_links}  } = @{ $h->{asset_links} };
 	@{ $data->{page_links}   } = @{ $h->{page_links} };
 	@{ $data->{objects}      } = @{ $h->{objects} };
@@ -63,7 +62,6 @@ sub new
 	
 	return bless({
 		parser      => $parser,
-		a_names     => [],
 		asset_links => [],
 		page_links  => [],
 		title       => undef,
@@ -118,12 +116,6 @@ sub start_element
 	
 	if(fc($elem->{Name}) eq fc("a"))
 	{
-		my ($name_attr) = grep { fc($_->{name}) eq fc("name") } @attributes;
-		if(defined($name_attr) && defined($name_attr->{value}))
-		{
-			push(@{ $self->{a_names} }, $name_attr->{value});
-		}
-		
 		my ($href_attr) = grep { fc($_->{name}) eq fc("href") } @attributes;
 		if(defined($href_attr) && defined($href_attr->{value}))
 		{

@@ -44,7 +44,6 @@ sub new
 			chm_name  => undef, # "foo.chm"
 			page_path => undef, # "foo/html/bar.htm"
 			
-			anchor_names => [],
 			asset_links  => [],
 			page_links   => [],
 			title        => undef,
@@ -78,18 +77,6 @@ sub page_path
 {
 	my ($self) = @_;
 	return $self->{page_path};
-}
-
-=head2 anchor_names()
-
-Returns a list of the names of any anchors defined in this page.
-
-=cut
-
-sub anchor_names
-{
-	my ($self) = @_;
-	return @{ $self->{anchor_names} };
 }
 
 =head2 title()
