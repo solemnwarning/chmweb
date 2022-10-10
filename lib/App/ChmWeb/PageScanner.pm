@@ -139,12 +139,26 @@ sub start_element
 			push(@{ $self->{asset_links} }, $src_attr->{value});
 		}
 	}
+	elsif(fc($elem->{Name}) eq fc("link"))
+	{
+		my ($href_attr) = grep { fc($_->{name}) eq fc("href") } @attributes;
+		if(defined($href_attr) && defined($href_attr->{value}))
+		{
+			push(@{ $self->{asset_links} }, $href_attr->{value});
+		}
+	}
 	elsif(fc($elem->{Name}) eq fc("title"))
 	{
 		$self->{processing_title} = 1;
 	}
 	elsif(fc($elem->{Name}) eq fc("script"))
 	{
+		my ($src_attr) = grep { fc($_->{name}) eq fc("src") } @attributes;
+		if(defined($src_attr) && defined($src_attr->{value}))
+		{
+			push(@{ $self->{asset_links} }, $src_attr->{value});
+		}
+		
 		$self->{processing_script} = 1;
 	}
 	elsif(fc($elem->{Name}) eq fc("object"))

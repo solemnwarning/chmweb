@@ -163,6 +163,38 @@ sub modify_content
 					}
 				}
 			}
+			elsif(fc($elem_name) eq fc("link"))
+			{
+				my ($href_attr) = grep { fc($_->{name}) eq fc("href") } @$elem_attributes;
+				if(defined($href_attr) && defined($href_attr->{value}))
+				{
+					my $old_href = $href_attr->{value};
+					my ($fixed_href) = $self->_resolve_link($old_href, $location->{LineNumber});
+					$fixed_href //= ""; # TODO: Placeholder/replace tag?
+					
+					if($fixed_href ne $old_href)
+					{
+						$href_attr->{value} = $fixed_href;
+						push(@replacements, $self->_tag_replacement($elem_name, $elem_attributes, $location));
+					}
+				}
+			}
+			elsif(fc($elem_name) eq fc("script"))
+			{
+				my ($src_attr) = grep { fc($_->{name}) eq fc("src") } @$elem_attributes;
+				if(defined($src_attr) && defined($src_attr->{value}))
+				{
+					my $old_src = $src_attr->{value};
+					my ($fixed_src) = $self->_resolve_link($old_src, $location->{LineNumber});
+					$fixed_src //= ""; # TODO: Placeholder/replace tag?
+					
+					if($fixed_src ne $old_src)
+					{
+						$src_attr->{value} = $fixed_src;
+						push(@replacements, $self->_tag_replacement($elem_name, $elem_attributes, $location));
+					}
+				}
+			}
 		});
 	
 	# Each ActiveX object in the page should either be
