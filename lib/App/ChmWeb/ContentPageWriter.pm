@@ -93,13 +93,15 @@ sub modify_content
 			{
 				my ($href_attr) = grep { fc($_->{name}) eq fc("href") } @$elem_attributes;
 				my ($target_attr) = grep { fc($_->{name}) eq fc("target") } @$elem_attributes;
+				my ($class_attr) = grep { fc($_->{name}) eq fc("class") } @$elem_attributes;
 				
 				my $replace_tag = 0;
 				
 				if(defined($href_attr) && defined($href_attr->{value}))
 				{
 					my $old_href = $href_attr->{value};
-					my ($fixed_href, $link_target, $link_class) = $self->_resolve_link($old_href, $location);
+					my ($fixed_href, $link_target, $link_class) = $self->_resolve_link($old_href, $location->{LineNumber});
+					$fixed_href //= "#";
 					
 					if($old_href ne $fixed_href)
 					{
@@ -122,6 +124,22 @@ sub modify_content
 						
 						$replace_tag = 1;
 					}
+					
+					if(defined $link_class)
+					{
+						if(defined $class_attr)
+						{
+							$class_attr->{value} .= " ".$link_class;
+						}
+						else{
+							push(@$elem_attributes, {
+								name => "CLASS",
+								value => $link_class,
+							});
+						}
+						
+						$replace_tag = 1;
+					}
 				}
 				
 				if($replace_tag)
@@ -135,7 +153,8 @@ sub modify_content
 				if(defined($src_attr) && defined($src_attr->{value}))
 				{
 					my $old_src = $src_attr->{value};
-					my ($fixed_src) = $self->_resolve_link($old_src, $location);
+					my ($fixed_src) = $self->_resolve_link($old_src, $location->{LineNumber});
+					$fixed_src //= ""; # TODO: Placeholder/replace tag?
 					
 					if($fixed_src ne $old_src)
 					{
@@ -145,6 +164,94 @@ sub modify_content
 				}
 			}
 		});
+	
+	# Each ActiveX object in the page should either be
+	#
+	# a) Replaced with a link/button/etc if it has the parameters that
+	#    would make the chm viewer display one.
+	#
+	# b) Removed if it is only used by other links (which will be updated
+	#    to not rely on it).
+	
+	foreach my $object($self->{page_data}->objects())
+	{
+		next unless($object->is_hh_activex_control());
+		
+		my $old_content = substr($self->{content}, $object->{start_offset}, $object->{total_length});
+		my $new_content = "";
+		
+		if(defined(my $button = $object->get_parameter("Button")))
+		{
+			if($button =~ m/^Text:\s*(.+)$/i)
+			{
+				# Button with a text label.
+			}
+			elsif($button =~ m/^\s*$/)
+			{
+				# "Chiclet" button.
+			}
+			elsif($button =~ m/^Bitmap:\s*shortcut$/i)
+			{
+				# Button with a shortcut icon.
+			}
+			elsif($button =~ m/^Bitmap:\s*(.+)$/i)
+			{
+				# Button with a bitmap image.
+			}
+			elsif($button =~ m/^Icon:\s*(.+)$/i)
+			{
+				# Button with an icon.
+			}
+			else{
+				warn "Unrecognised Button parameter \"$button\" in ".$self->{filename}."\n";
+			}
+		}
+		elsif(defined(my $text = $object->get_parameter("Text")))
+		{
+			$text =~ s/^Text:\s*//i;
+			
+			# TODO: Handle "Font" parameter
+			
+			my ($link_href, $link_target, $link_class) = $self->_resolve_link_for_object($object);
+			
+			if(defined $link_href)
+			{
+				my @a_attributes = (
+					{
+						name  => "HREF",
+						value => $link_href,
+					},
+				);
+				
+				if(defined $link_target)
+				{
+					push(@a_attributes, {
+						name  => "TARGET",
+						value => $link_target,
+					});
+				}
+				
+				if(defined $link_class)
+				{
+					push(@a_attributes, {
+						name  => "CLASS",
+						value => $link_class,
+					});
+				}
+				
+				$new_content = _encode_tag("A", \@a_attributes).encode_entities($text)."</A>";
+			}
+			else{
+				warn "Unable to resolve link for object at ".$self->{filename}." line ".$object->{start_line}."\n";
+			}
+		}
+		
+		push(@replacements, {
+			offset      => $object->{start_offset},
+			old_content => $old_content,
+			new_content => encode("UTF-8", $new_content),
+		});
+	}
 	
 	$self->_do_content_replacements(\@replacements);
 }
@@ -224,13 +331,9 @@ sub _do_content_replacements
 
 sub _resolve_link
 {
-	my ($self, $link, $location) = @_;
+	my ($self, $link, $line_num) = @_;
 	
 	my $page_path = $self->{filename};
-	
-	my $link_target = undef;
-	my $link_class = undef;
-	my $link_mapped = 0;
 	
 	if($link =~ m/^JavaScript:(\w+)\.Click()/)
 	{
@@ -242,74 +345,24 @@ sub _resolve_link
 		
 		if(defined($object) && $object->is_hh_activex_control())
 		{
-			my $command = $object->get_parameter("Command") // "<UNSET>";
-			
-			if($command =~ m/^ALink(,.*)?/)
-			{
-				my $fallback_link = $object->get_parameter("DEFAULTTOPIC");
-				my $chm_name      = $object->get_parameter("ITEM1") || $self->{page_data}->chm_name();
-				my $alink_name    = $object->get_parameter("ITEM2");
-				
-				my @topics = $self->{tree_data}->{chi}->get_alink_by_key($alink_name);
-				
-				if((scalar @topics) == 1)
-				{
-					# There is one topic for this ALink, jump straight to it.
-					
-					if(defined $topics[0]->{Local})
-					{
-						my $rel_target_path = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($topics[0]->{Local}, $self->{filename});
-						$link = "${rel_target_path}#${alink_name}";
-					}
-					else{
-						warn "Not a local topic '$alink_name' for ALink $object_id at ".$self->{filename}." line ".$location->{LineNumber}."\n";
-						$link = $fallback_link if(defined $fallback_link);
-					}
-				}
-				elsif((scalar @topics) == 0)
-				{
-					# No matches for this ALink, use the fallback URL.
-					
-					warn "Couldn't find ALink '$alink_name' in '$chm_name' for $object_id at ".$self->{filename}." line ".$location->{LineNumber}."\n";
-					$link = $fallback_link if(defined $fallback_link);
-				}
-				else{
-					# There are multiple topics for this ALink, go to a page
-					# listing them. TODO: JS-spawned iframe at cursor...
-					
-					if(defined $self->{tree_data}->{alink_page_map}->{$alink_name})
-					{
-						$link = $self->{tree_data}->{alink_page_map}->{$alink_name};
-						$link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link, $self->{filename});
-						
-						$link_class = "chmweb-multi-link";
-						$link_mapped = 1;
-					}
-					else{
-						$link = $fallback_link if(defined $fallback_link);
-					}
-				}
-			}
-			else{
-				warn "Unimplemented Command '$command' in $object_id at ".$self->{filename}." line ".$location->{LineNumber}."\n";
-			}
+			my ($link, $link_target, $link_class) = $self->_resolve_link_for_object($object);
+			return ($link, $link_target, $link_class);
 		}
 		else{
-			warn "'$link' refers to unknown ActiveX object at ".$self->{filename}." line ".$location->{LineNumber}."\n";
+			warn "'$link' refers to unknown ActiveX object at ".$self->{filename}." line $line_num\n";
 		}
 	}
 	
 	if($link =~ m/^\w+:/)
 	{
 		# Link starts with a protocol, return as-is.
-		return $link;
+		return ($link, undef, undef);
 	}
 	
 	if($link =~ m/^#/)
 	{
 		# Link is to an anchor on the current page, return as-is.
-		# TODO: Change target of these links(?).
-		return $link;
+		return ($link, undef, undef);
 	}
 	
 	# Remove anchor (if present)
@@ -336,12 +389,13 @@ sub _resolve_link
 		# (e.g. to ALink/KLink multi-choice pages) are already correctly-cased and will
 		# not in link_map, so bypass this.
 		
-		my $resolved_link = $link_mapped
-			? $root_relative_path
-			: $self->{link_map}->{$root_relative_path};
+		my $resolved_link = $self->{link_map}->{$root_relative_path};
 		
 		if(defined $resolved_link)
 		{
+			my $link_target = undef;
+			my $link_class = undef;
+			
 			my $link_page_data = $self->{tree_data}->get_page_data($resolved_link);
 			if(defined $link_page_data)
 			{
@@ -365,17 +419,88 @@ sub _resolve_link
 			}
 			
 			my $doc_relative_link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($resolved_link, $self->{filename});
-			return $doc_relative_link.$anchor, $link_target, $link_class;
+			return ($doc_relative_link.$anchor, $link_target, $link_class);
 		}
 		else{
-			warn "'$link' appears to be broken at ".$self->{filename}." line ".$location->{LineNumber}."\n";
-			return "#";
+			warn "'$link' appears to be broken at ".$self->{filename}." line $line_num\n";
+			return (undef, undef, undef);
 		}
 	}
 	else{
-		warn "'$link' is outside of tree at ".$self->{filename}." line ".$location->{LineNumber}."\n";
-		return "#";
+		warn "'$link' is outside of tree at ".$self->{filename}." line $line_num\n";
+		return (undef, undef, undef);
 	}
+}
+
+sub _resolve_link_for_object
+{
+	my ($self, $object) = @_;
+	
+	my $link;
+	
+	my $command = $object->get_parameter("Command") // "<UNSET>";
+	
+	if($command =~ m/^ALink(,.*)?/)
+	{
+		my $fallback_link = $object->get_parameter("DEFAULTTOPIC");
+		my $chm_name      = $object->get_parameter("ITEM1") || $self->{page_data}->chm_name();
+		my $alink_name    = $object->get_parameter("ITEM2");
+		
+		my @topics = $self->{tree_data}->{chi}->get_alink_by_key($alink_name);
+		
+		if((scalar @topics) == 1)
+		{
+			# There is one topic for this ALink, jump straight to it.
+			
+			if(defined $topics[0]->{Local})
+			{
+				my $rel_target_path = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($topics[0]->{Local}, $self->{filename});
+				$link = $rel_target_path;
+			}
+			elsif(defined $topics[0]->{URL})
+			{
+				$link = $topics[0]->{URL};
+			}
+			else{
+				warn "Not a local topic '$alink_name' for ALink object at ".$self->{filename}." line ".$object->{start_line}."\n";
+				$link = $fallback_link if(defined $fallback_link);
+			}
+		}
+		elsif((scalar @topics) == 0)
+		{
+			# No matches for this ALink, use the fallback URL.
+			
+			warn "Couldn't find ALink '$alink_name' in '$chm_name' for object at ".$self->{filename}." line ".$object->{start_line}."\n";
+			$link = $fallback_link if(defined $fallback_link);
+		}
+		else{
+			# There are multiple topics for this ALink, go to a page
+			
+			if(defined $self->{tree_data}->{alink_page_map}->{$alink_name})
+			{
+				$link = $self->{tree_data}->{alink_page_map}->{$alink_name};
+				$link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link, $self->{filename});
+				
+				return ($link, undef, "chmweb-multi-link");
+			}
+			else{
+				$link = $fallback_link if(defined $fallback_link);
+			}
+		}
+	}
+	else{
+		warn "Unimplemented Command '$command' in object at ".$self->{filename}." line ".$object->{start_line}."\n";
+	}
+	
+	my $link_target = undef;
+	my $link_class = undef;
+	
+	if(defined $link)
+	{
+		($link, $link_target, $link_class) = $self->_resolve_link($link, $object->{start_line});
+	}
+	
+	return ($link, $link_target, $link_class);
 }
 
 package App::ChmWeb::ContentPageWriter::Handler;

@@ -35,7 +35,14 @@ sub new
 {
 	my ($class) = @_;
 	
-	my $self = bless({ attributes => [], parameters => [] }, $class);
+	my $self = bless({
+		attributes => [],
+		parameters => [],
+		
+		start_offset => undef,
+		start_line   => undef,
+		total_length => undef,
+	}, $class);
 	lock_keys(%$self);
 	
 	return $self;

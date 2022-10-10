@@ -31,14 +31,20 @@ sub scan_page
 {
 	my ($class, $filename) = @_;
 	
+	open(my $content_fh, "<", $filename)
+		or die "Unable to open $filename: $!";
+	
+	binmode($content_fh);
+	my $content = do { local $/; <$content_fh>; };
+	
 	my $p = SGML::Parser::OpenSP->new();
-	my $h = App::ChmWeb::PageScanner::Handler->new($p);
+	my $h = App::ChmWeb::PageScanner::Handler->new($p, $filename, $content);
 	
 	$p->catalogs(qw(xhtml.soc));
 	$p->warnings(qw(xml valid));
 	$p->handler($h);
 	
-	$p->parse($filename);
+	$p->parse_string($content);
 	
 	my $data = App::ChmWeb::PageData->new();
 	
@@ -58,10 +64,13 @@ use SGML::Parser::OpenSP::Tools;
 
 sub new
 {
-	my ($class, $parser) = @_;
+	my ($class, $parser, $filename, $content) = @_;
 	
 	return bless({
 		parser      => $parser,
+		filename    => $filename,
+		content     => $content,
+		
 		asset_links => [],
 		page_links  => [],
 		title       => undef,
@@ -146,6 +155,10 @@ sub start_element
 		{
 			$self->{current_object}->add_attribute($attr->{name}, $attr->{value});
 		}
+		
+		my $loc = $self->{parser}->get_location();
+		$self->{current_object}->{start_offset} = $loc->{ByteOffset};
+		$self->{current_object}->{start_line} = $loc->{LineNumber};
 	}
 	elsif(fc($elem->{Name}) eq fc("param"))
 	{
@@ -190,15 +203,27 @@ sub end_element
 			my ($command_param) = $object->get_parameter("Command");
 			my ($command, @command_extra) = split(m/,/, ($command_param // ""));
 			
-			if($command eq "ALink")
+			if($command =~ m/^ALink(,.*)?$/)
 			{
-				my $default_topic = $object->get_parameter("Default Topic");
+				my $default_topic = $object->get_parameter("DEFAULTTOPIC");
 				if(defined $default_topic)
 				{
 					push(@{ $self->{page_links} }, $default_topic);
 				}
 			}
 		}
+		
+		my $loc = $self->{parser}->get_location();
+		my $end_tag_offset = $loc->{ByteOffset};
+		
+		my $end_tag_base = substr($self->{content}, $end_tag_offset, 32);
+		my ($end_tag_exact) = ($end_tag_base =~ m/^(<\/object>)/i);
+		
+		die "Unexpected text \"$end_tag_base\" at ".$self->{filename}." line ".$loc->{LineNumber}." (expected \"</object>\")"
+			unless(defined $end_tag_exact);
+		
+		my $end_tag_end = $end_tag_offset + length($end_tag_exact);
+		$object->{total_length} = $end_tag_end - $object->{start_offset};
 		
 		push(@{ $self->{objects} }, $object);
 	}
