@@ -1,5 +1,5 @@
 # App::ChmWeb - Generate browsable web pages from CHM files
-# Copyright (C) 2022 Daniel Collins <solemnwarning@solemnwarning.net>
+# Copyright (C) 2022-2023 Daniel Collins <solemnwarning@solemnwarning.net>
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License version 2 as published by
@@ -52,6 +52,8 @@ sub new
 			
 			alink_page_map => undef,
 			klink_page_map => undef,
+			
+			chm_subdirs => undef,
 		}, $class);
 	
 	lock_keys(%$self);

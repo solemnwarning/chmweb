@@ -1,5 +1,5 @@
 # App::ChmWeb - Generate browsable web pages from CHM files
-# Copyright (C) 2022 Daniel Collins <solemnwarning@solemnwarning.net>
+# Copyright (C) 2022-2023 Daniel Collins <solemnwarning@solemnwarning.net>
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License version 2 as published by
@@ -405,7 +405,30 @@ sub _resolve_link
 		$link =~ s/#.*$//s;
 	}
 	
-	if($link =~ m/^\//)
+	# MS-ITS:dsmsdn.chm::/html/msdn_footer.js
+	
+	if($link =~ m/^ms-its:([^:]+)::([^>]+)(?:>(.+))?$/si)
+	{
+		my $chm_name = $1;
+		my $chm_url = $2;
+		my $window_name = $3;
+		
+		if(defined $window_name)
+		{
+			# Not supported at this time.
+			warn "Window name specified in URL $link";
+		}
+		
+		my $chm_subdir = $self->{tree_data}->{chm_subdirs}->{ lc($chm_name) };
+		if(defined $chm_subdir)
+		{
+			$chm_url =~ s/^\/+//;
+			$link = "${chm_subdir}${chm_url}";
+			
+			$page_path = "ROOT";
+		}
+	}
+	elsif($link =~ m/^\//)
 	{
 		$link =~ s/^\/+//;
 		$link = $self->{chm_root}.$link;

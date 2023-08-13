@@ -1,5 +1,5 @@
 # App::ChmWeb - Generate browsable web pages from CHM files
-# Copyright (C) 2022 Daniel Collins <solemnwarning@solemnwarning.net>
+# Copyright (C) 2022-2023 Daniel Collins <solemnwarning@solemnwarning.net>
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License version 2 as published by
@@ -36,27 +36,29 @@ sub scan_tree
 	
 	$verbosity //= 0;
 	
-	my $data = {
+	my $self = bless({
 		page_links_to_scan => [], # Paths relative to $output_dir
 		
 		asset_links     => {},
 		page_links      => {},
 		
 		toc => [],
-	};
+		
+		chm_subdirs => {},
+	}, $class);
 	
 	# Add any pages referenced in the ALink/KLink maps to the queue of pages to be scanned.
 	foreach my $item(map { @$_ } (values(%{ $chi->get_all_alinks() }), values(%{ $chi->get_all_klinks() })))
 	{
 		if(defined $item->{Local})
 		{
-			my $page_link_path = _get_link_path($item->{Local}, "ROOT", "");
+			my $page_link_path = $self->_get_link_path($item->{Local}, "ROOT", "");
 			if(defined $page_link_path)
 			{
-				if(!$data->{page_links}->{$page_link_path})
+				if(!$self->{page_links}->{$page_link_path})
 				{
-					$data->{page_links}->{$page_link_path} = 1;
-					push(@{ $data->{page_links_to_scan} }, $page_link_path);
+					$self->{page_links}->{$page_link_path} = 1;
+					push(@{ $self->{page_links_to_scan} }, $page_link_path);
 				}
 			}
 			else{
@@ -72,6 +74,14 @@ sub scan_tree
 		print STDERR "Scanning contents...";
 	}
 	
+	foreach my $chm_subdir_pair(@$chm_subdir_pairs)
+	{
+		my $chm_name = $chm_subdir_pair->[0];
+		my $chm_subdir = $chm_subdir_pair->[1];
+		
+		$self->{chm_subdirs}->{ lc($chm_name) } = $chm_subdir;
+	}
+	
 	my $hhc_scanner = App::ChmWeb::WorkerPool->new(\&App::ChmWeb::HHCParser::parse_hhc_file);
 	my $hhc_scanned_count = 0;
 	
@@ -83,13 +93,13 @@ sub scan_tree
 		my $hhc_name = App::ChmWeb::Util::find_hhc_in("${output_dir}${chm_subdir}");
 		
 		my $local_toc = [];
-		push(@{ $data->{toc} }, $local_toc);
+		push(@{ $self->{toc} }, $local_toc);
 		
 		$hhc_scanner->post([ "${output_dir}${chm_subdir}${hhc_name}" ], sub
 		{
 			my ($hhc) = @_;
 			
-			_walk_hhc_level($data, $output_dir, $chm_subdir, $hhc->{toc}, $local_toc);
+			_walk_hhc_level($self, $output_dir, $chm_subdir, $hhc->{toc}, $local_toc);
 			
 			++$hhc_scanned_count;
 			if($verbosity >= 1)
@@ -105,7 +115,7 @@ sub scan_tree
 	# Pull all the elements in toc up a level - each iteration of the above loop intially
 	# inserts its own sub-array to ensure all the TOC entries from each CHM remain grouped and
 	# in the correct order.
-	@{ $data->{toc} } = map { @$_ } @{ $data->{toc} };
+	@{ $self->{toc} } = map { @$_ } @{ $self->{toc} };
 	
 	# Then, we loop over all the pages, scanning them for links to assets which need to be
 	# resolved, further pages to scan, etc, until there are no pages left.
@@ -127,9 +137,9 @@ sub scan_tree
 			map { $_ => 1 }
 			grep { defined($_) && !$pages_queued_for_scan{$_} }
 			map { App::ChmWeb::Util::resolve_mixed_case_path($_, $output_dir) }
-			@{ $data->{page_links_to_scan} };
+			@{ $self->{page_links_to_scan} };
 		
-		$data->{page_links_to_scan} = [];
+		$self->{page_links_to_scan} = [];
 		
 		if(!%pages_to_scan)
 		{
@@ -156,22 +166,22 @@ sub scan_tree
 				
 				foreach my $asset_link(@{ $page_data->{asset_links} })
 				{
-					my $link_path = _get_link_path($asset_link, $page_path, $chm_subdir);
+					my $link_path = $self->_get_link_path($asset_link, $page_path, $chm_subdir);
 					if(defined $link_path)
 					{
-						$data->{asset_links}->{$link_path} = 1;
+						$self->{asset_links}->{$link_path} = 1;
 					}
 				}
 				
 				foreach my $page_link(@{ $page_data->{page_links} })
 				{
-					my $link_path = _get_link_path($page_link, $page_path, $chm_subdir);
+					my $link_path = $self->_get_link_path($page_link, $page_path, $chm_subdir);
 					if(defined $link_path)
 					{
-						if(!$data->{page_links}->{$link_path})
+						if(!$self->{page_links}->{$link_path})
 						{
-							$data->{page_links}->{$link_path} = 1;
-							push(@{ $data->{page_links_to_scan} }, $link_path);
+							$self->{page_links}->{$link_path} = 1;
+							push(@{ $self->{page_links_to_scan} }, $link_path);
 						}
 					}
 				}
@@ -193,18 +203,20 @@ sub scan_tree
 	
 	if($verbosity >= 1)
 	{
-		print STDERR "\nScanned ", (scalar keys(%pages_queued_for_scan)), " pages, found ", (scalar keys(%{ $data->{page_links} })), " unique page links and ", (scalar keys(%{ $data->{asset_links} })), " unique asset links\n";
+		print STDERR "\nScanned ", (scalar keys(%pages_queued_for_scan)), " pages, found ", (scalar keys(%{ $self->{page_links} })), " unique page links and ", (scalar keys(%{ $self->{asset_links} })), " unique asset links\n";
 	}
 	
 	my $td_o = App::ChmWeb::TreeData->new();
 	
-	$td_o->{asset_links} = [ sort keys(%{ $data->{asset_links} }) ];
-	$td_o->{page_links}  = [ sort keys(%{ $data->{page_links}  }) ];
+	$td_o->{asset_links} = [ sort keys(%{ $self->{asset_links} }) ];
+	$td_o->{page_links}  = [ sort keys(%{ $self->{page_links}  }) ];
 	
 	$td_o->{pages} = \%pages;
 	
-	$td_o->{toc} = $data->{toc};
+	$td_o->{toc} = $self->{toc};
 	$td_o->{chi} = $chi;
+	
+	$td_o->{chm_subdirs} = $self->{chm_subdirs};
 	
 	# Set the toc_path of the PageData object for each page referenced by the ToC.
 	$td_o->visit_toc_nodes(sub
@@ -234,7 +246,7 @@ sub scan_tree
 
 sub _walk_hhc_level
 {
-	my ($data, $output_dir, $chm_subdir, $hhc_nodes, $out_toc) = @_;
+	my ($self, $output_dir, $chm_subdir, $hhc_nodes, $out_toc) = @_;
 	
 	foreach my $node(@$hhc_nodes)
 	{
@@ -246,13 +258,13 @@ sub _walk_hhc_level
 		{
 			# There's a page here...
 			
-			my $page_link_path = _get_link_path($chm_subdir.$node->{Local}, "ROOT", $chm_subdir);
+			my $page_link_path = $self->_get_link_path($chm_subdir.$node->{Local}, "ROOT", $chm_subdir);
 			if(defined $page_link_path)
 			{
-				if(!$data->{page_links}->{$page_link_path})
+				if(!$self->{page_links}->{$page_link_path})
 				{
-					$data->{page_links}->{$page_link_path} = 1;
-					push(@{ $data->{page_links_to_scan} }, $page_link_path);
+					$self->{page_links}->{$page_link_path} = 1;
+					push(@{ $self->{page_links_to_scan} }, $page_link_path);
 				}
 				
 				$out_node->{page_link} = $node->{Local};
@@ -266,7 +278,7 @@ sub _walk_hhc_level
 		if(defined $node->{children})
 		{
 			$out_node->{children} = [];
-			_walk_hhc_level($data, $output_dir, $chm_subdir, $node->{children}, $out_node->{children});
+			_walk_hhc_level($self, $output_dir, $chm_subdir, $node->{children}, $out_node->{children});
 		}
 		
 		push(@$out_toc, $out_node);
@@ -275,7 +287,7 @@ sub _walk_hhc_level
 
 sub _get_link_path
 {
-	my ($link, $page_path, $chm_root) = @_;
+	my ($self, $link, $page_path, $chm_root) = @_;
 	
 	if($link =~ m/^\w+:/)
 	{
@@ -292,7 +304,23 @@ sub _get_link_path
 	# Remove anchor (if present)
 	$link =~ s/#.*$//s;
 	
-	if($link =~ m/^\//)
+	# MS-ITS:dsmsdn.chm::/html/msdn_footer.js
+	
+	if($link =~ m/^ms-its:([^:]+)::([^>]+)/si)
+	{
+		my $chm_name = $1;
+		my $chm_url = $2;
+		
+		my $chm_subdir = $self->{chm_subdirs}->{ lc($chm_name) };
+		if(defined $chm_subdir)
+		{
+			$chm_url =~ s/^\/+//;
+			$link = "${chm_subdir}${chm_url}";
+			
+			$page_path = "ROOT";
+		}
+	}
+	elsif($link =~ m/^\//)
 	{
 		$link =~ s/^\/+//;
 		$link = "${chm_root}${link}";
