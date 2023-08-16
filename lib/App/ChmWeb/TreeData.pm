@@ -91,6 +91,25 @@ sub visit_toc_nodes
 	$f->($f, $self->{toc}, []);
 }
 
+sub get_toc_nodes_at
+{
+	my ($self, $path) = @_;
+	
+	my $node = $self->{toc};
+	
+	for(my $i = 0; $i < (scalar @$path); ++$i)
+	{
+		if($path->[$i] >= (scalar @$node))
+		{
+			return undef;
+		}
+		
+		$node = $node->[ $path->[$i] ]->{children} // [];
+	}
+	
+	return @$node;
+}
+
 =head2 get_pages()
 
 Get the App::ChmWeb::PageData object for all pages in the output directory.

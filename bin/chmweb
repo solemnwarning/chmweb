@@ -110,9 +110,9 @@ sub singlechm
 	my %link_map = map { $_ => App::ChmWeb::Util::resolve_mixed_case_path($_, $output_dir) }
 		(@{ $data->{page_links} }, @{ $data->{asset_links} });
 	
-	generate_pages($data->{toc}, $output_dir, \@chm_subdir_pairs, $data, \%link_map);
+	generate_toc_pages($data, $output_dir, \%link_map);
 	
-	generate_stub_pages($data->{toc}, $output_dir, \%link_map);
+	generate_pages($data->{toc}, $output_dir, \@chm_subdir_pairs, $data, \%link_map);
 }
 
 sub multichm
@@ -151,8 +151,6 @@ sub multichm
 		(@{ $data->{page_links} }, @{ $data->{asset_links} });
 	
 	generate_pages($data->{toc}, $output_dir, \@chm_subdir_pairs, $data, \%link_map);
-	
-	generate_stub_pages($data->{toc}, $output_dir, \%link_map);
 }
 
 sub chw
@@ -225,9 +223,9 @@ sub chw
 	my $alink_page_map = App::ChmWeb::LinkPageWriter::write_link_pages($output_dir, $alinks_with_multiple_topics);
 	$data->{alink_page_map} = $alink_page_map;
 	
-	generate_pages($data->{toc}, $output_dir, \@chm_subdir_pairs, $data, \%link_map);
+	generate_toc_pages($data, $output_dir, \%link_map);
 	
-	generate_stub_pages($data->{toc}, $output_dir, \%link_map);
+	generate_pages($data->{toc}, $output_dir, \@chm_subdir_pairs, $data, \%link_map);
 }
 
 sub generate_pages
@@ -247,11 +245,16 @@ sub generate_pages
 		
 		my $content_path = ($page_path =~ s/\.(\w+)$/.content.$1/r);
 		
+		my @toc_page_path = $page_data->toc_path();
+		pop(@toc_page_path) unless($tree_data->get_toc_nodes_at($toc_path));
+		
+		my $toc_page_url = App::ChmWeb::Util::root_relative_path_to_doc_relative_path("_toc/toc".join("_", @toc_page_path).".html", $page_path)."#toc".join("_", @$toc_path);
+		
 		my ($chm_root) = grep { $page_path =~ m/^\Q$_\E/ } map { $_->[1] } @$chm_subdir_pairs;
 		
 		write_content_page($page_path, $content_path, $output_dir, $link_map, $chm_root, $tree_data, $page_data);
 		
-		write_wrapper_page($toc_root, $toc_path, ($page_data->title() // ""), $output_dir, $page_path, $content_path, $link_map);
+		write_wrapper_page($toc_root, $toc_path, ($page_data->title() // ""), $output_dir, $page_path, $content_path, $link_map, $toc_page_url);
 		
 		return;
 	});
@@ -278,55 +281,6 @@ sub generate_pages
 	$page_generator = undef;
 	
 	print STDERR "\n";
-}
-
-sub generate_stub_pages
-{
-	my ($toc_root, $output_dir, $link_map) = @_;
-	
-	print STDERR "Generating stub pages...";
-	
-	my $stub_page_generator = App::ChmWeb::WorkerPool->new(sub
-	{
-		my ($toc_path, $title) = @_;
-		
-		my $stub_path = join("_", "s", @$toc_path).".htm";
-		
-		write_wrapper_page($toc_root, $toc_path, $title, $output_dir, $stub_path, undef, $link_map);
-	});
-	
-	my $walk_toc_tree = sub
-	{
-		my ($walk_toc_tree, $toc_nodes, $toc_path) = @_;
-		
-		for(my $i = 0; $i < (scalar @$toc_nodes); ++$i)
-		{
-			my $toc_node = $toc_nodes->[$i];
-			
-			unless(defined $toc_node->{page_path})
-			{
-				$stub_page_generator->post([ [ @$toc_path, $i ], $toc_node->{name} ], sub {});
-			}
-			
-			if(defined $toc_node->{children})
-			{
-				$walk_toc_tree->($walk_toc_tree, $toc_node->{children}, [ @$toc_path, $i ]);
-			}
-		}
-	};
-	
-	$walk_toc_tree->($walk_toc_tree, $toc_root, []);
-	
-	$stub_page_generator->drain();
-	$stub_page_generator = undef;
-	
-	print STDERR "\n";
-}
-
-sub generate_stub_page_path
-{
-	my ($toc_path) = @_;
-	return join("_", "s", @$toc_path).".htm"
 }
 
 sub write_content_page
@@ -362,9 +316,7 @@ sub write_content_page
 
 sub write_wrapper_page
 {
-	my ($toc_root, $toc_path, $page_title, $output_dir, $wrapper_path, $content_path, $link_map) = @_;
-	
-	my $toc = build_wrapper_toc($toc_root, [], $toc_path, $output_dir, $wrapper_path, $link_map);
+	my ($toc_root, $toc_path, $page_title, $output_dir, $wrapper_path, $content_path, $link_map, $toc_page_url) = @_;
 	
 	my $content = <<EOF;
 <html>
@@ -374,9 +326,7 @@ sub write_wrapper_page
 </head>
 
 <body>
-<div style="position: fixed; top: 0px; left: 0px; height: 100%; width: 200px; overflow: scroll;">
-$toc
-</div>
+<iframe src="$toc_page_url" style="position: fixed; top: 0px; left: 0px; height: 100%; width: 200px;"></iframe>
 EOF
 	
 	if(defined $content_path)
@@ -410,70 +360,148 @@ EOF
 	}
 }
 
-sub build_wrapper_toc
+sub generate_toc_pages
 {
-	my ($toc_nodes, $toc_path, $page_toc_path, $output_dir, $wrapper_path, $link_map) = @_;
+	my ($tree_data, $output_dir, $link_map) = @_;
 	
-	my ($toc_this, @toc_next) = @$page_toc_path;
-	
-	my $r = "<ul style=\"padding-left:1em;\">\n";
-	
-	for(my $i = 0; $i < @$toc_nodes; ++$i)
+	unless(-e "${output_dir}/_toc/")
 	{
-		my $node = $toc_nodes->[$i];
-		
-		my $aa = "";
-		my $ab = "";
-		
-		if(defined($node->{page_path}))
-		{
-			if(defined($link_map->{ $node->{page_path} }))
-			{
-				my $href = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link_map->{ $node->{page_path} }, $wrapper_path);
-				$aa = "<a href=\"$href\">";
-				$ab = "</a>";
-			}
-			else{
-				# die "Broken link in TOC: ".$node->{page_path};
-			}
-		}
-		else{
-			my $href = App::ChmWeb::Util::root_relative_path_to_doc_relative_path(generate_stub_page_path([ @$toc_path, $i ]), $wrapper_path);
-			$aa = "<a href=\"$href\">";
-			$ab = "</a>";
-		}
-		
-		my $ba = "";
-		my $bb = "";
-		
-		if(defined($toc_this) && $i == $toc_this)
-		{
-			$ba = "<b>";
-			$bb = "</b>";
-		}
-		
-		$r .= "<li>${ba}${aa}".($toc_nodes->[$i]->{name} // "???")."${ab}${bb}</b>\n";
-		
-		if(defined($node->{children}))
-		{
-			# Node has children...
-			
-			if(defined($toc_this) && $i == $toc_this)
-			{
-				# ... and the current page is at/under it
-				$r .= build_wrapper_toc($node->{children}, [ @$toc_path, $i ], \@toc_next, $output_dir, $wrapper_path, $link_map);
-			}
-			elsif(!defined($node->{page_path}))
-			{
-				# ...and it doesn't have a link (wouldn't be expandable by itself)
-				# $r .= build_wrapper_toc($node->{children}, [], $output_dir, $wrapper_path, $link_map);
-			}
-		}
-		
-		$r .= "</li>\n";
+		mkdir("${output_dir}/_toc/") or die "Unable to create ${output_dir}/_toc/: $!\n";
 	}
 	
-	$r .= "</ul>\n";
+	my $total_toc_pages = 1;
+	my $done_toc_pages = 0;
 	
-	return $r;
+	my $toc_page_generator = App::ChmWeb::WorkerPool->new(sub
+	{
+		my ($toc_path) = @_;
+		
+		my $html_path = "_toc/toc".join("_", @$toc_path).".html";
+		write_toc_page($tree_data, $toc_path, $output_dir, $html_path, $link_map);
+		
+		return;
+	});
+	
+	my $toc_page_generator_callback = sub
+	{
+		++$done_toc_pages;
+		
+		if(($done_toc_pages % 100) == 0 || $done_toc_pages == $total_toc_pages)
+		{
+			print STDERR "\rGenerating TOC pages... ($done_toc_pages / $total_toc_pages)";
+		}
+	};
+	
+	$tree_data->visit_toc_nodes(sub
+	{
+		my ($toc_node, $toc_path) = @_;
+		
+		if(defined($toc_node->{children}) && @{ $toc_node->{children} })
+		{
+			++$total_toc_pages;
+			$toc_page_generator->post([ $toc_path ], $toc_page_generator_callback);
+		}
+	});
+	
+	$toc_page_generator->post([ [] ], $toc_page_generator_callback);
+	
+	$toc_page_generator->drain();
+	$toc_page_generator = undef;
+	
+	print "\n";
+}
+
+sub write_toc_page
+{
+	my ($tree_data, $toc_path, $output_dir, $html_path, $link_map) = @_;
+	
+	my $build_toc_list = sub
+	{
+		my ($build_toc_list, $toc_nodes, $toc_at, $toc_next, @toc_nextnext) = @_;
+		
+		my $r = "<ul style=\"padding-left:1em;\">\n";
+		
+		for(my $i = 0; $i < @$toc_nodes; ++$i)
+		{
+			my $node = $toc_nodes->[$i];
+			
+			my $anchor = "toc".join("_", @$toc_at, $i);
+			
+			my $aa = "";
+			my $ab = "";
+			
+			if(defined($node->{page_path}))
+			{
+				if(defined($link_map->{ $node->{page_path} }))
+				{
+					my $href = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link_map->{ $node->{page_path} }, $html_path);
+					$aa = "<a id=\"$anchor\" href=\"$href\" target=\"_top\">";
+					$ab = "</a>";
+				}
+				else{
+					# die "Broken link in TOC: ".$node->{page_path};
+				}
+			}
+			
+			my $expand_link = "";
+			my $child_list = "";
+			
+			if(defined($node->{children}))
+			{
+				# Node has children...
+				
+				if(defined($toc_next) && $i == $toc_next)
+				{
+					# ... and the current page is at/under it
+					$child_list = $build_toc_list->($build_toc_list, $node->{children}, [ @$toc_at, $toc_next ], @toc_nextnext);
+					$expand_link = "[-] ";
+				}
+				else{
+					$expand_link = "<a href=\"toc".join("_", @$toc_at, $i).".html#toc".join("_", @$toc_at, $i)."\">[+]</a> ";
+				}
+			}
+			
+			$r .= "<li>${expand_link}${aa}".($toc_nodes->[$i]->{name} // "???")."${ab}${child_list}</li>\n";
+		}
+		
+		$r .= "</ul>\n";
+	};
+	
+	my $root_list = $build_toc_list->($build_toc_list, $tree_data->{toc}, [], @$toc_path);
+	
+	my $html = <<EOF;
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<style type="text/css">
+a:target
+{
+	font-weight: bold;
+}
+</style>
+</head>
+
+<body>
+$root_list
+</body>
+</html>
+EOF
+	
+	if($gzip_pages)
+	{
+		my $data = encode("UTF-8", $html);
+		
+		gzip(\$data, "${output_dir}/${html_path}.gz")
+			or warn "write_toc_page: Unable to write ${output_dir}/${html_path}.gz: $GzipError\n";
+	}
+	else{
+		if(open(my $fh, "> :encoding(UTF-8)", "${output_dir}/${html_path}"))
+		{
+			print {$fh} $html;
+		}
+		else{
+			warn "write_toc_page: Unable to write ${output_dir}/${html_path}: $!\n";
+		}
+	}
 }
