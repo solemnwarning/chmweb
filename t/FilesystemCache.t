@@ -115,25 +115,19 @@ describe "App::ChmWeb::FilesystemCache" => sub
 		};
 	};
 	
-	describe "dir_children_fc()" => sub
+	describe "dir_children()" => sub
 	{
 		it "returns files with correct names" => sub
 		{
 			{ open(my $fh, ">", "${tempdir}/HELLO") or die $!; }
 			{ open(my $fh, ">", "${tempdir}/world") or die $!; }
 			{ open(my $fh, ">", "${tempdir}/FoObAr") or die $!; }
+			{ open(my $fh, ">", "${tempdir}/foobar") or die $!; }
 			{ open(my $fh, ">", "${tempdir}/baz123") or die $!; }
 			
-			cmp_deeply(
-				$cache->dir_children_fc("$tempdir"),
-				{
-					fc("hello")  => "HELLO",
-					fc("WORLD")  => "world",
-					fc("foobar") => "FoObAr",
-					fc("BAZ123") => "baz123",
-					fc(".")      => ".",
-					fc("..")     => "..",
-				});
+			cmp_bag(
+				[ $cache->dir_children("$tempdir") ],
+				[ qw(HELLO world FoObAr foobar baz123) ]);
 		};
 		
 		it "caches results" => sub
@@ -141,22 +135,50 @@ describe "App::ChmWeb::FilesystemCache" => sub
 			{ open(my $fh, ">", "${tempdir}/HELLO") or die $!; }
 			{ open(my $fh, ">", "${tempdir}/world") or die $!; }
 			{ open(my $fh, ">", "${tempdir}/FoObAr") or die $!; }
+			{ open(my $fh, ">", "${tempdir}/foobar") or die $!; }
 			{ open(my $fh, ">", "${tempdir}/baz123") or die $!; }
 			
-			$cache->dir_children_fc("$tempdir");
+			$cache->dir_children("$tempdir");
 			
 			unlink("${tempdir}/HELLO") or die $!;
 			
-			cmp_deeply(
-				$cache->dir_children_fc("$tempdir"),
-				{
-					fc("hello")  => "HELLO",
-					fc("WORLD")  => "world",
-					fc("foobar") => "FoObAr",
-					fc("BAZ123") => "baz123",
-					fc(".")      => ".",
-					fc("..")     => "..",
-				});
+			cmp_bag(
+				[ $cache->dir_children("$tempdir") ],
+				[ qw(HELLO world FoObAr foobar baz123) ]);
+		};
+	};
+	
+	describe "insensitive_children()" => sub
+	{
+		it "returns matching file names" => sub
+		{
+			{ open(my $fh, ">", "${tempdir}/HELLO") or die $!; }
+			{ open(my $fh, ">", "${tempdir}/world") or die $!; }
+			{ open(my $fh, ">", "${tempdir}/baz123") or die $!; }
+			{ open(my $fh, ">", "${tempdir}/BaZ123") or die $!; }
+			{ open(my $fh, ">", "${tempdir}/BaZ123b") or die $!; }
+			{ open(my $fh, ">", "${tempdir}/aBaZ123") or die $!; }
+			mkdir("${tempdir}/baZ123") or die $!;
+			
+			cmp_bag(
+				[ $cache->insensitive_children("$tempdir", "HELLO") ],
+				[ qw(HELLO) ]);
+			
+			cmp_bag(
+				[ $cache->insensitive_children("$tempdir", "hello") ],
+				[ qw(HELLO) ]);
+			
+			cmp_bag(
+				[ $cache->insensitive_children("$tempdir", "baz123") ],
+				[ qw(baz123 BaZ123 baZ123) ]);
+			
+			cmp_bag(
+				[ $cache->insensitive_children("$tempdir", "BAZ123b") ],
+				[ qw(BaZ123b) ]);
+			
+			cmp_bag(
+				[ $cache->insensitive_children("$tempdir", "Abaz123") ],
+				[ qw(aBaZ123) ]);
 		};
 	};
 };

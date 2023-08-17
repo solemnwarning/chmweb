@@ -115,7 +115,7 @@ sub resolve_mixed_case_path
 		$prefix .= "/";
 	}
 	else{
-		$prefix = "";
+		$prefix = "./";
 	}
 	
 	if(App::ChmWeb::FilesystemCache->e($prefix.$path))
@@ -126,38 +126,27 @@ sub resolve_mixed_case_path
 	
 	my @in_parts = split(m/\//, $path);
 	
-	my @resolved_parts = ();
-	
-	P: foreach my $p(@in_parts)
+	my $try_from_dir = sub
 	{
-		my $p_parent = $prefix.join("/", @resolved_parts);
-		my $p_path = $prefix.join("/", @resolved_parts, $p);
+		my ($try_from_dir, $resolved_parts, $next_part, @other_parts) = @_;
 		
-		if(App::ChmWeb::FilesystemCache->e($p_path))
+		my @possible_matches = App::ChmWeb::FilesystemCache->insensitive_children($prefix.$resolved_parts, $next_part);
+		
+		foreach my $pm(@possible_matches)
 		{
-			push(@resolved_parts, $p);
-		}
-		else{
-			if(!App::ChmWeb::FilesystemCache->d($p_parent))
-			{
-				return undef;
-			}
+			return "${resolved_parts}${pm}" unless(@other_parts);
 			
-			my $children_fc_map = App::ChmWeb::FilesystemCache->dir_children_fc($p_parent);
-			
-			my $p_found = $children_fc_map->{ fc($p) };
-			if(defined $p_found)
+			my $maybe_result = $try_from_dir->($try_from_dir, "${resolved_parts}${pm}/", @other_parts);
+			if(defined $maybe_result)
 			{
-				push(@resolved_parts, $p_found);
-				next P;
-			}
-			else{
-				return undef;
+				return $maybe_result;
 			}
 		}
-	}
+		
+		return undef;
+	};
 	
-	return join("/", @resolved_parts);
+	return $try_from_dir->($try_from_dir, "", @in_parts);
 }
 
 sub find_hhc_in

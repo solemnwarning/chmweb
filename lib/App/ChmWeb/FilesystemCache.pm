@@ -52,7 +52,7 @@ Constructs a new FilesystemCache instance.
 sub new
 {
 	my ($class) = @_;
-	return bless({ e => {}, d => {}, dir_children_fc => {} }, $class);
+	return bless({ e => {}, d => {}, dir_children => {}, insensitive_children => {} }, $class);
 }
 
 =head2 reset()
@@ -69,7 +69,8 @@ sub reset
 	
 	$self->{e} = {};
 	$self->{d} = {};
-	$self->{dir_children_fc} = {};
+	$self->{dir_children} = {};
+	$self->{insensitive_children} = {};
 }
 
 =head2 e($path)
@@ -89,32 +90,32 @@ sub e
 		return $self->{e}->{$path};
 	}
 	
-	my ($path_dir, $path_name) = ($path =~ m/^(.*)\/([^\/]+)$/);
-	if(defined $path_name)
-	{
-		if(defined $self->{dir_children_fc}->{$path_dir})
-		{
-			# dir_children_fc() has been called on the parent directory at some point,
-			# we may be able to find the answer in its cache rather than doing a stat
-			# call through the -e operator...
-			
-			my $dir_fc_child = $self->{dir_children_fc}->{$path_dir}->{ fc($path_name) };
-			if(defined $dir_fc_child)
-			{
-				if($dir_fc_child eq $path_name)
-				{
-					return $self->{e}->{$path} = 1;
-				}
-				else{
-					# There is a differently-cased version of the requested
-					# name in the parent directory. Fall back to -e operator.
-				}
-			}
-			else{
-				return $self->{e}->{$path} = 0;
-			}
-		}
-	}
+# 	my ($path_dir, $path_name) = ($path =~ m/^(.*)\/([^\/]+)$/);
+# 	if(defined $path_name)
+# 	{
+# 		if(defined $self->{dir_children_fc}->{$path_dir})
+# 		{
+# 			# dir_children_fc() has been called on the parent directory at some point,
+# 			# we may be able to find the answer in its cache rather than doing a stat
+# 			# call through the -e operator...
+# 			
+# 			my $dir_fc_child = $self->{dir_children_fc}->{$path_dir}->{ fc($path_name) };
+# 			if(defined $dir_fc_child)
+# 			{
+# 				if($dir_fc_child eq $path_name)
+# 				{
+# 					return $self->{e}->{$path} = 1;
+# 				}
+# 				else{
+# 					# There is a differently-cased version of the requested
+# 					# name in the parent directory. Fall back to -e operator.
+# 				}
+# 			}
+# 			else{
+# 				return $self->{e}->{$path} = 0;
+# 			}
+# 		}
+# 	}
 	
 	return $self->{e}->{$path} //= !!(-e $path);
 }
@@ -134,39 +135,58 @@ sub d
 	return $self->{d}->{$path} //= !!(-d $path);
 }
 
-=head2 dir_children_fc($path)
+=head2 dir_children($dir)
 
-Returns a hashref containing the case-folded names of all files/directories
-in the given directory.
-
-The hash key is the case folded name and the value is the real name, this is to
-allow resolving case-insensitive paths on a case-sensitive filesystem. If there
-are multiple cases of the name in the same directory any ONE will be returned.
-
-The hash is returned directly from the cache for performance - do not modify it!
-
-If the directory isn't accessible, undef is returned.
+Returns the names of any child files/directories under C<$dir>, excluding
+the C<.> and C<..> special directories.
 
 =cut
 
-sub dir_children_fc
+sub dir_children
 {
 	my ($self, $dir) = @_;
 	
 	$self = $instance unless(ref $self);
 	
-	my $d_hash = $self->{dir_children_fc}->{$dir};
+	my $children = $self->{dir_children}->{$dir};
 	
-	unless(defined $d_hash)
+	unless(defined $children)
 	{
 		if(opendir(my $d, $dir))
 		{
-			$d_hash = $self->{dir_children_fc}->{$dir} = { map { fc($_) => $_ } readdir($d) };
+			$children = $self->{dir_children}->{$dir} = [ grep { $_ ne "." && $_ ne ".." } readdir($d) ];
 		}
 		else{
 			warn "$dir: $!";
+			return;
 		}
 	}
 	
-	return $d_hash;
+	return @$children;
+}
+
+=head2 insensitive_children($dir, $name)
+
+Returns the names of any child files/directories under C<$dir> whose names
+case-insensitively match C<$name>.
+
+=cut
+
+sub insensitive_children
+{
+	my ($self, $dir, $name) = @_;
+	
+	$self = $instance unless(ref $self);
+	
+	my $cache_key = "${dir}\0".fc($name);
+	my $children = $self->{insensitive_children}->{$cache_key};
+	
+	unless(defined $children)
+	{
+		$children = $self->{insensitive_children}->{$cache_key} = [
+			grep { fc($_) eq fc($name) } $self->dir_children($dir)
+		];
+	}
+	
+	return @$children;
 }
