@@ -43,7 +43,7 @@ describe "App::ChmWeb::AKLinkTable" => sub
 		});
 		
 		cmp_deeply($t->get_all_klinks(), {
-			"Programming the Windows 95 User Interface Samples" => [
+			"programming the windows 95 user interface samples" => [
 				{
 					Name  => "Sample Source Code for This Book",
 					Local => "html/win95uisamples.htm",
