@@ -102,11 +102,16 @@ sub singlechm
 	my $chm_stem = ($chm_basename =~ s/\.chm$//ir);
 	
 	my $chi_filename = App::ChmWeb::Util::resolve_mixed_case_path("${chm_stem}.chi", $chm_dirname);
-	die unless(defined $chi_filename);
+	my $chi;
 	
-	$chi_filename = "${chm_dirname}/${chi_filename}";
-	
-	my $chi = App::ChmWeb::AKLinkTable->load_chi($chi_filename);
+	if(defined $chi_filename)
+	{
+		$chi_filename = "${chm_dirname}/${chi_filename}";
+		$chi = App::ChmWeb::AKLinkTable->load_chi($chi_filename);
+	}
+	else{
+		$chi = App::ChmWeb::AKLinkTable->stub_chi();
+	}
 	
 	system("mkdir", "-p", $output_dir) and die;
 	

@@ -260,6 +260,18 @@ sub load_chw
 	return $self;
 }
 
+sub stub_chi
+{
+	my ($class) = @_;
+	
+	my $self = bless({
+		files => {},
+		alinks => {},
+		klinks => {},
+		topics => []
+	}, $class);
+}
+
 sub _process_BTree_file
 {
 	my ($self, $table, $btree_file) = @_;
