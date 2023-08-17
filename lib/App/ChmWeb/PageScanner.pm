@@ -60,13 +60,14 @@ sub scan_page
 
 package App::ChmWeb::PageScanner::Handler;
 
+use Scalar::Util qw(weaken);
 use SGML::Parser::OpenSP::Tools;
 
 sub new
 {
 	my ($class, $parser, $filename, $content) = @_;
 	
-	return bless({
+	my $self = bless({
 		parser      => $parser,
 		filename    => $filename,
 		content     => $content,
@@ -79,6 +80,10 @@ sub new
 		current_object => undef,
 		objects     => [],
 	}, $class);
+	
+	weaken($self->{parser});
+	
+	return $self;
 }
 
 sub start_element

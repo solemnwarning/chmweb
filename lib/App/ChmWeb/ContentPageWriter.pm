@@ -560,11 +560,14 @@ sub _resolve_link_for_object
 
 package App::ChmWeb::ContentPageWriter::Handler;
 
+use Scalar::Util qw(weaken);
+
 sub new
 {
 	my ($class, $callbacks, $parser) = @_;
 	
 	my $self = bless({ callbacks => $callbacks, parser => $parser, processing_script => 0 }, $class);
+	weaken($self->{parser});
 	return $self;
 }
 
