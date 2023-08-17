@@ -17,6 +17,8 @@
 use strict;
 use warnings;
 
+use feature qw(fc);
+
 package App::ChmWeb::AKLinkTable;
 
 =head1 NAME
@@ -332,8 +334,8 @@ sub _process_BTree_block
 				my $topic = $self->get_topic_by_idx($topic_idx);
 				if(defined $topic)
 				{
-					$table->{$name} //= [];
-					push(@{ $table->{$name} }, $topic);
+					$table->{ fc($name) } //= [];
+					push(@{ $table->{ fc($name) } }, $topic);
 				}
 				else{
 					warn "Unknown topic in $btree_file: $topic_idx";
@@ -346,8 +348,8 @@ sub _process_BTree_block
 			my ($sa_string, $sa_size) = $self->_file_read_utf16_string($btree_file, $entry_off);
 			$entry_off += $sa_size;
 			
-			$table->{$name} //= [];
-			push(@{ $table->{$name} }, {
+			$table->{ fc($name) } //= [];
+			push(@{ $table->{ fc($name) } }, {
 				SeeAlso => $sa_string,
 			});
 		}
@@ -580,7 +582,7 @@ sub get_alink_by_key
 {
 	my ($self, $key) = @_;
 	
-	return @{ $self->{alinks}->{$key} // [] };
+	return @{ $self->{alinks}->{ fc($key) } // [] };
 }
 
 =head2 get_all_klinks()
@@ -607,7 +609,7 @@ sub get_klink_by_key
 {
 	my ($self, $key) = @_;
 	
-	return @{ $self->{klinks}->{$key} // [] };
+	return @{ $self->{klinks}->{ fc($key) } // [] };
 }
 
 =head2 get_chx_names()
