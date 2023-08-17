@@ -419,7 +419,7 @@ sub _resolve_link
 			warn "Window name specified in URL $link";
 		}
 		
-		my $chm_subdir = $self->{tree_data}->{chm_subdirs}->{ lc($chm_name) };
+		my $chm_subdir = $self->{tree_data}->{toc}->chm_subdir_by_chX($chm_name);
 		if(defined $chm_subdir)
 		{
 			$chm_url =~ s/^\/+//;

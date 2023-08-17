@@ -52,62 +52,11 @@ sub new
 			
 			alink_page_map => undef,
 			klink_page_map => undef,
-			
-			chm_subdirs => undef,
 		}, $class);
 	
 	lock_keys(%$self);
 	
 	return $self;
-}
-
-=head2 visit_toc_nodes($func)
-
-Helper for iterating over the table of contents. The $func callback is called
-for every node in the tree with a reference to the node and its path within the
-tree.
-
-=cut
-
-sub visit_toc_nodes
-{
-	my ($self, $func) = @_;
-	
-	my $f = sub
-	{
-		my ($f, $nodes, $path) = @_;
-		
-		for(my $i = 0; $i < (scalar @$nodes); ++$i)
-		{
-			my $node = $nodes->[$i];
-			
-			$func->($node, [ @$path, $i ]);
-			
-			$f->($f, $node->{children}, [ @$path, $i ])
-				if(defined $node->{children});
-		}
-	};
-	
-	$f->($f, $self->{toc}, []);
-}
-
-sub get_toc_nodes_at
-{
-	my ($self, $path) = @_;
-	
-	my $node = $self->{toc};
-	
-	for(my $i = 0; $i < (scalar @$path); ++$i)
-	{
-		if($path->[$i] >= (scalar @$node))
-		{
-			return undef;
-		}
-		
-		$node = $node->[ $path->[$i] ]->{children} // [];
-	}
-	
-	return @$node;
 }
 
 =head2 get_pages()

@@ -32,7 +32,7 @@ use App::ChmWeb::WorkerPool;
 
 sub scan_tree
 {
-	my ($class, $output_dir, $chm_subdir_pairs, $chi, $verbosity) = @_;
+	my ($class, $output_dir, $toc, $chi, $verbosity) = @_;
 	
 	$verbosity //= 0;
 	
@@ -42,9 +42,7 @@ sub scan_tree
 		asset_links     => {},
 		page_links      => {},
 		
-		toc => [],
-		
-		chm_subdirs => {},
+		toc => $toc,
 	}, $class);
 	
 	# Add any pages referenced in the ALink/KLink maps to the queue of pages to be scanned.
@@ -74,48 +72,35 @@ sub scan_tree
 		print STDERR "Scanning contents...";
 	}
 	
-	foreach my $chm_subdir_pair(@$chm_subdir_pairs)
-	{
-		my $chm_name = $chm_subdir_pair->[0];
-		my $chm_subdir = $chm_subdir_pair->[1];
-		
-		$self->{chm_subdirs}->{ lc($chm_name) } = $chm_subdir;
-	}
+	my @chm_nodes = $toc->depth_first_search(sub { return $_[0]->isa("App::ChmWeb::ToC::Node::CHM"); });
 	
 	my $hhc_scanner = App::ChmWeb::WorkerPool->new(\&App::ChmWeb::HHCParser::parse_hhc_file);
 	my $hhc_scanned_count = 0;
 	
-	foreach my $chm_subdir_pair(@$chm_subdir_pairs)
+	foreach my $chm_node(@chm_nodes)
 	{
-		my $chm_name = $chm_subdir_pair->[0];
-		my $chm_subdir = $chm_subdir_pair->[1];
+		my $chm_stem = $chm_node->chm_stem();
+		my $chm_subdir = $toc->chm_subdir_by_stem($chm_stem);
 		
 		my $hhc_name = App::ChmWeb::Util::find_hhc_in("${output_dir}${chm_subdir}");
-		
-		my $local_toc = [];
-		push(@{ $self->{toc} }, $local_toc);
 		
 		$hhc_scanner->post([ "${output_dir}${chm_subdir}${hhc_name}" ], sub
 		{
 			my ($hhc) = @_;
 			
-			_walk_hhc_level($self, $output_dir, $chm_subdir, $hhc->{toc}, $local_toc);
+			my @chm_toc_nodes = _walk_hhc_level($self, $output_dir, $chm_subdir, $hhc->{toc});
+			$toc->replace_chm($chm_node, @chm_toc_nodes);
 			
 			++$hhc_scanned_count;
 			if($verbosity >= 1)
 			{
-				print STDERR "\rScanning contents... ($hhc_scanned_count / ", (scalar @$chm_subdir_pairs), ")";
+				print STDERR "\rScanning contents... ($hhc_scanned_count / ", (scalar @chm_nodes), ")";
 			}
 		});
 	}
 	
 	$hhc_scanner->drain();
 	$hhc_scanner = undef;
-	
-	# Pull all the elements in toc up a level - each iteration of the above loop intially
-	# inserts its own sub-array to ensure all the TOC entries from each CHM remain grouped and
-	# in the correct order.
-	@{ $self->{toc} } = map { @$_ } @{ $self->{toc} };
 	
 	# Then, we loop over all the pages, scanning them for links to assets which need to be
 	# resolved, further pages to scan, etc, until there are no pages left.
@@ -156,12 +141,11 @@ sub scan_tree
 			{
 				my ($page_data) = @_;
 				
-				my ($chm_subdir_pair) = grep { my $subdir = $_->[1]; $page_path =~ m/^\Q$subdir\E/ } @$chm_subdir_pairs;
+				my $chm_stem = $toc->chm_stem_by_path($page_path);
+				my $chm_subdir = $toc->chm_subdir_by_stem($chm_stem);
 				
-				my $chm_name = $chm_subdir_pair->[0];
-				my $chm_subdir = $chm_subdir_pair->[1];
-				
-				$page_data->{chm_name} = $chm_name;
+				# $page_data->{chm_name} = $chm_name;
+				$page_data->{chm_name} = "${chm_stem}.chm";
 				$page_data->{page_path} = $page_path;
 				
 				foreach my $asset_link(@{ $page_data->{asset_links} })
@@ -213,32 +197,32 @@ sub scan_tree
 	
 	$td_o->{pages} = \%pages;
 	
-	$td_o->{toc} = $self->{toc};
+	$td_o->{toc} = $toc;
 	$td_o->{chi} = $chi;
 	
-	$td_o->{chm_subdirs} = $self->{chm_subdirs};
-	
 	# Set the toc_path of the PageData object for each page referenced by the ToC.
-	$td_o->visit_toc_nodes(sub
+	$toc->depth_first_search(sub
 	{
-		my ($toc_node, $toc_path) = @_;
+		my ($toc_node) = @_;
 		
-		if(defined $toc_node->{page_path})
+		if($toc_node->isa("App::ChmWeb::ToC::Node::Page"))
 		{
-			my $page_path = App::ChmWeb::Util::resolve_mixed_case_path($toc_node->{page_path}, $output_dir);
+			my $page_path = App::ChmWeb::Util::resolve_mixed_case_path($toc_node->filename(), $output_dir);
 			if(defined $page_path)
 			{
 				my $page_data = $td_o->{pages}->{$page_path};
 				
 				if(defined $page_data)
 				{
-					$page_data->{toc_path} //= $toc_path;
+					$page_data->{toc_path} //= [ $toc_node->path() ];
 				}
 				else{
 					warn "Missing page in App::ChmWeb::TreeData::pages: $page_path";
 				}
 			}
 		}
+		
+		return;
 	});
 	
 	return $td_o;
@@ -246,13 +230,13 @@ sub scan_tree
 
 sub _walk_hhc_level
 {
-	my ($self, $output_dir, $chm_subdir, $hhc_nodes, $out_toc) = @_;
+	my ($self, $output_dir, $chm_subdir, $hhc_nodes) = @_;
+	
+	my @toc_nodes = ();
 	
 	foreach my $node(@$hhc_nodes)
 	{
-		my $out_node = {
-			name => $node->{Name},
-		};
+		my $toc_node = undef;
 		
 		if(defined $node->{Local})
 		{
@@ -267,22 +251,32 @@ sub _walk_hhc_level
 					push(@{ $self->{page_links_to_scan} }, $page_link_path);
 				}
 				
-				$out_node->{page_link} = $node->{Local};
-				$out_node->{page_path} = $page_link_path;
+				# $out_node->{page_link} = $node->{Local};
+				# $out_node->{page_path} = $page_link_path;
+				
+				$toc_node = App::ChmWeb::ToC::Node::Page->new($node->{Name}, $page_link_path);
 			}
 			else{
 				# TODO: warn about hhc referencing external files...
 			}
 		}
 		
+		$toc_node //= App::ChmWeb::ToC::Node::Folder->new($node->{Name});
+		
 		if(defined $node->{children})
 		{
-			$out_node->{children} = [];
-			_walk_hhc_level($self, $output_dir, $chm_subdir, $node->{children}, $out_node->{children});
+			my @children = _walk_hhc_level($self, $output_dir, $chm_subdir, $node->{children});
+			
+			foreach my $child(@children)
+			{
+				$toc_node->add_child($child);
+			}
 		}
 		
-		push(@$out_toc, $out_node);
+		push(@toc_nodes, $toc_node);
 	}
+	
+	return @toc_nodes;
 }
 
 sub _get_link_path
@@ -311,7 +305,7 @@ sub _get_link_path
 		my $chm_name = $1;
 		my $chm_url = $2;
 		
-		my $chm_subdir = $self->{chm_subdirs}->{ lc($chm_name) };
+		my $chm_subdir = $self->{toc}->chm_subdir_by_chX($chm_name);
 		if(defined $chm_subdir)
 		{
 			$chm_url =~ s/^\/+//;
