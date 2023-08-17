@@ -16,6 +16,7 @@ jobs:
             libsgml-parser-opensp-perl \
             libsys-info-perl \
             libhtml-parser-perl \
+            libtest-exception-perl \
             libtest-spec-perl
 
     - name: Run tests
