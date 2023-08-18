@@ -1,5 +1,5 @@
 # App::ChmWeb - Generate browsable web pages from CHM files
-# Copyright (C) 2022 Daniel Collins <solemnwarning@solemnwarning.net>
+# Copyright (C) 2022-2023 Daniel Collins <solemnwarning@solemnwarning.net>
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License version 2 as published by
@@ -160,9 +160,27 @@ sub find_hhc_in
 	{
 		return $hhc_names[0];
 	}
-	else{
+	elsif((scalar @hhc_names) == 0)
+	{
 		die "Unable to find HHC file in $path\n";
 	}
+	
+	# Pretty much every CHM file seems to contain a single HHC file which is the ToC... except
+	# htmlhelp.chm, which has toc.hhc (the actual ToC) and methods.hhc which the help viewer
+	# appears to ignore.
+	#
+	# I can't figure out how hh.exe finds the correct hhc file in the chm, so this just assumes
+	# any chm containing those two hhc's is htmlhelp.chm and selects toc.hhc.
+	#
+	# Whee.
+	
+	if(join("\0", sort map { lc($_) } @hhc_names) eq "methods.hhc\0toc.hhc")
+	{
+		my ($toc) = grep { m/toc.hhc/i } @hhc_names;
+		return $toc;
+	}
+	
+	die "Multiple HHC files found in $path, don't know how to proceed\n";
 }
 
 1;
