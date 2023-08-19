@@ -362,14 +362,14 @@ sub write_wrapper_page
 </head>
 
 <body>
-<iframe src="$toc_page_url" style="position: fixed; top: 0px; left: 0px; height: 100%; width: 200px;"></iframe>
+<iframe src="$toc_page_url" style="position: fixed; top: 0px; left: 0px; height: 100%; width: 20em;"></iframe>
 EOF
 	
 	if(defined $content_path)
 	{
 		my $local_content_path = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($content_path, $wrapper_path);
 		$content .= <<EOF;
-<iframe src="$local_content_path" style="position: fixed; top: 0px; width: calc(100% - 200px); left: 200px; height:100%;"></iframe>
+<iframe src="$local_content_path" style="position: fixed; top: 0px; width: calc(100% - 20em); left: 20em; height:100%;"></iframe>
 EOF
 	}
 	
@@ -515,6 +515,7 @@ sub write_toc_page
 <style type="text/css">
 li {
 	list-style-type: none;
+	font-family: "Verdana", "Helvetica", sans-serif;
 }
 
 ul {
@@ -524,6 +525,14 @@ ul {
 li .arrow {
 	position: absolute;
 	margin-left: -1em;
+}
+
+li > ul {
+	border-top: 1px solid #000000;
+}
+
+li:not(:last-of-type) {
+	border-bottom: 1px solid #000000;
 }
 
 a {
