@@ -465,6 +465,26 @@ sub write_toc_page
 			
 			my $anchor = "toc".join("_", @$toc_at, $i);
 			
+			my $expand_href = undef;
+			my $expand_link = "";
+			my $child_list = "";
+			
+			if($node->isa("App::ChmWeb::ToC::Node::Container") && $node->children())
+			{
+				# Node has children...
+				
+				if(defined($toc_next) && $i == $toc_next)
+				{
+					# ... and the current page is at/under it
+					$child_list = $build_toc_list->($build_toc_list, [ $node->children() ], [ @$toc_at, $toc_next ], @toc_nextnext);
+					$expand_link = "<span class=\"arrow\">&#x25BC;</span>";
+				}
+				else{
+					$expand_href = "toc".join("_", @$toc_at, $i).".html#toc".join("_", @$toc_at, $i);
+					$expand_link = "<a class=\"arrow\" href=\"${expand_href}\">&#x25B6;</a>";
+				}
+			}
+			
 			my $aa = "";
 			my $ab = "";
 			
@@ -480,23 +500,10 @@ sub write_toc_page
 					# die "Broken link in TOC: ".$node->{page_path};
 				}
 			}
-			
-			my $expand_link = "";
-			my $child_list = "";
-			
-			if($node->isa("App::ChmWeb::ToC::Node::Container") && $node->children())
+			elsif(defined $expand_href)
 			{
-				# Node has children...
-				
-				if(defined($toc_next) && $i == $toc_next)
-				{
-					# ... and the current page is at/under it
-					$child_list = $build_toc_list->($build_toc_list, [ $node->children() ], [ @$toc_at, $toc_next ], @toc_nextnext);
-					$expand_link = "<span class=\"arrow\">&#x25BC;</span>";
-				}
-				else{
-					$expand_link = "<a class=\"arrow\" href=\"toc".join("_", @$toc_at, $i).".html#toc".join("_", @$toc_at, $i)."\">&#x25B6;</a>";
-				}
+				$aa = "<a id=\"$anchor\" href=\"${expand_href}\">";
+				$ab = "</a>";
 			}
 			
 			$r .= "<li>${expand_link}${aa}".($node->title() // "???")."${ab}${child_list}</li>\n";
