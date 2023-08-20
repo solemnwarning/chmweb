@@ -19,7 +19,9 @@ use strict;
 use warnings;
 
 use Encode qw(encode);
+use Fcntl qw(:mode);
 use File::Basename;
+use File::stat;
 use IO::Compress::Gzip qw(gzip $GzipError);
 
 use FindBin;
@@ -135,6 +137,8 @@ sub singlechm
 	generate_toc_pages($toc, $output_dir, \%link_map);
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
+	
+	fix_permissions($output_dir);
 }
 
 sub multichm
@@ -260,6 +264,8 @@ sub chw
 	generate_toc_pages($toc, $output_dir, \%link_map);
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
+	
+	fix_permissions($output_dir);
 }
 
 sub generate_pages
@@ -574,4 +580,58 @@ EOF
 			warn "write_toc_page: Unable to write ${output_dir}/${html_path}: $!\n";
 		}
 	}
+}
+
+sub fix_permissions
+{
+	my ($dir) = @_;
+	
+	print STDERR "Resetting directory permissions under $dir...\n";
+	
+	my $umask = umask();
+	
+	my $walk = sub
+	{
+		my ($walk, $dir) = @_;
+		
+		if(opendir(my $dh, $dir))
+		{
+			while(defined(my $name = readdir($dh)))
+			{
+				next if($name eq "." || $name eq "..");
+				$name = "${dir}/${name}";
+				
+				my $st = stat($name);
+				if($st)
+				{
+					my $new_mode;
+					
+					if(S_ISDIR($st->mode))
+					{
+						$new_mode = 0777 & ~$umask;
+						$walk->($walk, $name);
+					}
+					else{
+						$new_mode = 0666 & ~$umask;
+					}
+					
+					if(($st->mode & 07777) != $new_mode)
+					{
+						# printf("%s %o => %o\n", $name, ($st->mode & 07777), $new_mode);
+						
+						chmod($new_mode, $name)
+							or warn "Unable to change permissions on $name: $!\n";
+					}
+				}
+				else{
+					warn "Unable to stat $dir/$name: $!\n";
+				}
+			}
+		}
+		else{
+			warn "Unable to open $dir: $!\n";
+		}
+	};
+	
+	$walk->($walk, $dir);
 }
