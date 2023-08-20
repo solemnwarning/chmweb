@@ -137,6 +137,7 @@ sub singlechm
 	generate_toc_pages($toc, $output_dir, \%link_map);
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
+	write_index_page($toc, $data, $output_dir);
 	
 	fix_permissions($output_dir);
 }
@@ -264,6 +265,7 @@ sub chw
 	generate_toc_pages($toc, $output_dir, \%link_map);
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
+	write_index_page($toc, $data, $output_dir);
 	
 	fix_permissions($output_dir);
 }
@@ -296,7 +298,8 @@ sub generate_pages
 		
 		write_content_page($page_path, $content_path, $output_dir, $link_map, $chm_root, $tree_data, $page_data);
 		
-		write_wrapper_page($toc, $toc_path, ($page_data->title() // ""), $output_dir, $page_path, $content_path, $link_map, $toc_page_url);
+		my $local_content_path = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($content_path, $page_path);
+		write_wrapper_page(($page_data->title() // ""), $output_dir, $page_path, $local_content_path, $toc_page_url);
 		
 		return;
 	});
@@ -358,7 +361,7 @@ sub write_content_page
 
 sub write_wrapper_page
 {
-	my ($toc_root, $toc_path, $page_title, $output_dir, $wrapper_path, $content_path, $link_map, $toc_page_url) = @_;
+	my ($page_title, $output_dir, $wrapper_path, $content_path, $toc_page_url) = @_;
 	
 	my $content = <<EOF;
 <html>
@@ -369,17 +372,7 @@ sub write_wrapper_page
 
 <body>
 <iframe src="$toc_page_url" style="position: fixed; top: 0px; left: 0px; height: 100%; width: 20em;"></iframe>
-EOF
-	
-	if(defined $content_path)
-	{
-		my $local_content_path = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($content_path, $wrapper_path);
-		$content .= <<EOF;
-<iframe src="$local_content_path" style="position: fixed; top: 0px; width: calc(100% - 20em); left: 20em; height:100%;"></iframe>
-EOF
-	}
-	
-	$content .= <<EOF;
+<iframe src="$content_path" style="position: fixed; top: 0px; width: calc(100% - 20em); left: 20em; height:100%;"></iframe>
 </body>
 </html>
 EOF
@@ -634,4 +627,33 @@ sub fix_permissions
 	};
 	
 	$walk->($walk, $dir);
+}
+
+sub write_index_page
+{
+	my ($toc, $tree_data, $output_dir) = @_;
+	
+	# Find the first page in the collection to serve as the entry page.
+	my ($toc_page) = $toc->depth_first_search(sub
+	{
+		my ($toc_node) = @_;
+		return $toc_node->isa("App::ChmWeb::ToC::Node::Page");
+	});
+	
+	return unless(defined $toc_page);
+	
+	my $page_path = $toc_page->filename();
+	my $page_data = $tree_data->get_page_data($page_path)
+		// die "Missing page data for $page_path";
+	
+	my $content_path = ($page_path =~ s/\.(\w+)$/.content.$1/r);
+	
+	# If this page has children, then we should display the ToC under it, otherwise we
+	# display the ToC of the our immediate parent.
+	my @toc_page_path = $page_data->toc_path();
+	pop(@toc_page_path) unless($toc->nodes_at(\@toc_page_path));
+	
+	my $toc_page_url = "_toc/toc".join("_", @toc_page_path).".html#toc".join("_", $toc_page->path());
+	
+	write_wrapper_page(($page_data->title() // ""), $output_dir, "index.html", $content_path, $toc_page_url);
 }
