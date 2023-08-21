@@ -272,6 +272,52 @@ sub stub_chi
 	}, $class);
 }
 
+=head2 merge(@instances)
+
+Construct a new AKLinkTable by merging others together.
+
+=cut
+
+sub merge
+{
+	my ($class, @instances) = @_;
+	
+	my $self = bless({
+		alinks => {},
+		klinks => {},
+		topics => []
+	}, $class);
+	
+	foreach my $instance(@instances)
+	{
+		foreach my $alink(keys(%{ $instance->{alinks} }))
+		{
+			$self->{alinks}->{$alink} //= [];
+			push(@{ $self->{alinks}->{$alink} }, @{ $instance->{alinks}->{$alink} });
+		}
+		
+		foreach my $klink(keys(%{ $instance->{klinks} }))
+		{
+			$self->{klinks}->{$klink} //= [];
+			push(@{ $self->{klinks}->{$klink} }, @{ $instance->{klinks}->{$klink} });
+		}
+		
+		push(@{ $self->{topics} }, @{ $instance->{topics} });
+	}
+	
+	foreach my $alink(keys(%{ $self->{alinks} }))
+	{
+		@{ $self->{alinks}->{$alink} } = _sort_and_uniq_topics(@{ $self->{alinks}->{$alink} });
+	}
+	
+	foreach my $klink(keys(%{ $self->{klinks} }))
+	{
+		@{ $self->{klinks}->{$klink} } = _sort_and_uniq_topics(@{ $self->{klinks}->{$klink} });
+	}
+	
+	return $self;
+}
+
 sub _process_BTree_file
 {
 	my ($self, $table, $btree_file) = @_;

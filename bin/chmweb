@@ -23,6 +23,7 @@ use Fcntl qw(:mode);
 use File::Basename;
 use File::stat;
 use IO::Compress::Gzip qw(gzip $GzipError);
+use List::Util qw(all);
 
 use FindBin;
 use lib ("$FindBin::Bin/../lib/");
@@ -42,6 +43,8 @@ main() unless caller;
 
 sub main
 {
+	STDERR->autoflush(1);
+	
 	for(my $i = 0; $i < (scalar @ARGV);)
 	{
 		if($ARGV[$i] eq "--gzip-pages")
@@ -59,9 +62,7 @@ sub main
 		}
 	}
 	
-	my $command = shift(@ARGV) // "";
-	
-	if($command eq "single-chm" && (scalar @ARGV) == 2)
+	if((scalar @ARGV) == 2 && $ARGV[0] =~ m/\.chm$/i)
 	{
 		my ($chm_file, $output_dir) = @ARGV;
 		
@@ -69,7 +70,7 @@ sub main
 		
 		singlechm($chm_file, $output_dir);
 	}
-	elsif($command eq "multi-chm" && (scalar @ARGV) >= 2)
+	elsif((scalar @ARGV) >= 2 && all { m/\.chm$/i } @ARGV[0 .. ($#ARGV - 1)])
 	{
 		my $output_dir = pop(@ARGV);
 		my @chm_files = @ARGV;
@@ -78,7 +79,7 @@ sub main
 		
 		multichm(\@chm_files, $output_dir);
 	}
-	elsif($command eq "chw" && (scalar @ARGV) >= 2)
+	elsif((scalar @ARGV) == 2 && $ARGV[0] =~ m/\.chw$/i)
 	{
 		my ($chw_file, $output_dir) = @ARGV;
 		
@@ -87,16 +88,14 @@ sub main
 		chw($chw_file, $output_dir);
 	}
 	else{
-		die "Usage: $0 [--gzip-pages] single-chm <input.chm> <output directory>\n"
-		   ."       $0 [--gzip-pages] multi-chm <input1.chm> <input2.chm> ... <output directory>\n";
+		die "Usage: $0 [--gzip-pages] <input.chm> [<input2.chm> <input3.chm> ...] <output directory>\n"
+		   ."       $0 [--gzip-pages] <input.chw> <output directory>\n";
 	}
 }
 
 sub singlechm
 {
 	my ($chm_file, $output_dir) = @_;
-	
-	print STDERR "Loading CHI file...\n";
 	
 	my $chm_dirname = dirname($chm_file) // ".";
 	my $chm_basename = basename($chm_file);
@@ -108,6 +107,8 @@ sub singlechm
 	
 	if(defined $chi_filename)
 	{
+		print STDERR "Loading ${chi_filename}...\n";
+		
 		$chi_filename = "${chm_dirname}/${chi_filename}";
 		$chi = App::ChmWeb::AKLinkTable->load_chi($chi_filename);
 	}
@@ -117,14 +118,12 @@ sub singlechm
 	
 	system("mkdir", "-p", $output_dir) and die;
 	
-	print STDERR "Extracting CHM file...\n";
+	print STDERR "Extracting ${chm_basename}...\n";
 	
 	system("7z", "x", $chm_file, "-o${output_dir}", "-aoa", "-bd", "-bso0", "-bsp0") and die;
 	
 	my $toc = App::ChmWeb::ToC->new();
 	$toc->add_chm($chm_stem, "");
-	
-	STDERR->autoflush(1);
 	
 	my $verbosity = 1;
 	my $data = App::ChmWeb::TreeScanner->scan_tree($output_dir, $toc, $chi, $verbosity);
@@ -146,38 +145,92 @@ sub multichm
 {
 	my ($chm_files, $output_dir) = @_;
 	
-	my @merged_toc = ();
-	my @chm_subdir_pairs = ();
+	my $toc = App::ChmWeb::ToC->new();
+	my @chi_links = ();
+	
+	my $chi_loader = App::ChmWeb::WorkerPool->new(sub
+	{
+		my ($chi_filename) = @_;
+		return App::ChmWeb::AKLinkTable->load_chi($chi_filename);
+	});
+	
+	print STDERR "Loading CHI files...\n";
 	
 	foreach my $chm_file(@$chm_files)
 	{
+		my $chm_dirname = dirname($chm_file) // ".";
 		my $chm_basename = basename($chm_file);
-		my $chm_basename_noext = ($chm_basename =~ s/\.chm$//ir);
 		
-		if(grep { $_[1] =~ m/^\Q$chm_basename_noext\E\/$/i } @chm_subdir_pairs)
+		my $chm_stem = ($chm_basename =~ s/\.chm$//ir);
+		
+		if(defined $toc->chm_subdir_by_stem($chm_stem))
 		{
 			die "Multiple input files with same name ($chm_basename) on command line\n";
 		}
 		
-		push(@chm_subdir_pairs, [ $chm_basename, "$chm_basename_noext/", $chm_file ]);
+		$toc->add_chm($chm_stem, "${chm_stem}/");
 		
-		my $chm_target_dir = "$output_dir/$chm_basename_noext";
+		my $chi_filename = App::ChmWeb::Util::resolve_mixed_case_path("${chm_stem}.chi", $chm_dirname);
 		
-		system("mkdir", "-p", $chm_target_dir) and die;
-		system("7z", "x", $chm_file, "-o${chm_target_dir}", "-aoa") and die;
+		if(defined $chi_filename)
+		{
+			$chi_filename = "${chm_dirname}/${chi_filename}";
+			
+			$chi_loader->post([ $chi_filename ], sub
+			{
+				my ($chi) = @_;
+				push(@chi_links, App::ChmWeb::AKLinkTable->load_chi($chi_filename));
+			});
+		}
 	}
 	
-	STDERR->autoflush(1);
+	$chi_loader->drain();
+	$chi_loader = undef;
+	
+	my $merged_chi = App::ChmWeb::AKLinkTable->merge(@chi_links);
+	
+	print STDERR "Extracting CHM files...";
+	
+	my $extract_done = 0;
+	my $extract_pool = App::ChmWeb::WorkerPool->new(sub
+	{
+		my ($chm_file, $chm_target_dir) = @_;
+		
+		system("mkdir", "-p", $chm_target_dir) and die;
+		system("7z", "x", $chm_file, "-o${chm_target_dir}", "-aoa", "-bd", "-bso0", "-bsp0") and die;
+	});
+	
+	foreach my $chm_file(@$chm_files)
+	{
+		my $chm_basename   = basename($chm_file);
+		my $chm_target_dir = "$output_dir/".$toc->chm_subdir_by_chX($chm_basename);
+		
+		$extract_pool->post([ $chm_file, $chm_target_dir ], sub
+		{
+			++$extract_done;
+			print STDERR "\rExtracting CHM files... ($extract_done / ", (scalar @$chm_files), ")";
+		});
+	}
+	
+	$extract_pool->drain();
+	$extract_pool = undef;
+	
+	print STDERR "\n";
 	
 	my $verbosity = 1;
-	my $data = App::ChmWeb::TreeScanner->scan_tree($output_dir, \@chm_subdir_pairs, $verbosity);
+	my $data = App::ChmWeb::TreeScanner->scan_tree($output_dir, $toc, $merged_chi, $verbosity);
 	
 	print STDERR "Resolving links...\n";
 	
 	my %link_map = map { $_ => App::ChmWeb::Util::resolve_mixed_case_path($_, $output_dir) }
 		(@{ $data->{page_links} }, @{ $data->{asset_links} });
 	
-	generate_pages($output_dir, \@chm_subdir_pairs, $data, \%link_map);
+	generate_toc_pages($toc, $output_dir, \%link_map);
+	
+	generate_pages($output_dir, $toc, $data, \%link_map);
+	write_index_page($toc, $data, $output_dir);
+	
+	fix_permissions($output_dir);
 }
 
 sub chw
@@ -241,8 +294,6 @@ sub chw
 	$extract_pool = undef;
 	
 	print STDERR "\n";
-	
-	STDERR->autoflush(1);
 	
 	my $verbosity = 1;
 	my $data = App::ChmWeb::TreeScanner->scan_tree($output_dir, $toc, $chw, $verbosity);
