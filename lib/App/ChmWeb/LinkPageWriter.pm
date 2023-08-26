@@ -1,5 +1,5 @@
 # App::ChmWeb - Generate browsable web pages from CHM files
-# Copyright (C) 2022 Daniel Collins <solemnwarning@solemnwarning.net>
+# Copyright (C) 2022-2023 Daniel Collins <solemnwarning@solemnwarning.net>
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License version 2 as published by
@@ -16,6 +16,8 @@
 
 use strict;
 use warnings;
+
+use feature qw(fc);
 
 package App::ChmWeb::LinkPageWriter;
 
@@ -68,7 +70,7 @@ EOF
 </html>
 EOF
 		
-		$link_file_map{$link_name} = $output_name;
+		$link_file_map{ fc($link_name) } = $output_name;
 	}
 	
 	return \%link_file_map;

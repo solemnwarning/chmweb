@@ -531,14 +531,15 @@ sub _resolve_link_for_object
 		else{
 			# There are multiple topics for this ALink, go to a page
 			
-			if(defined $self->{tree_data}->{alink_page_map}->{$alink_name})
+			if(defined $self->{tree_data}->{alink_page_map}->{ fc($alink_name) })
 			{
-				$link = $self->{tree_data}->{alink_page_map}->{$alink_name};
+				$link = $self->{tree_data}->{alink_page_map}->{ fc($alink_name) };
 				$link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link, $self->{filename});
 				
 				return ($link, undef, "chmweb-multi-link");
 			}
 			else{
+				warn "Couldn't find ALink choice page for '$alink_name' in '$chm_name' for object at ".$self->{filename}." line ".$object->{start_line}."\n";
 				$link = $fallback_link if(defined $fallback_link);
 			}
 		}
