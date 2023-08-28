@@ -133,6 +133,9 @@ sub singlechm
 	my %link_map = map { $_ => App::ChmWeb::Util::resolve_mixed_case_path($_, $output_dir) }
 		(@{ $data->{page_links} }, @{ $data->{asset_links} });
 	
+	print STDERR "Writing multi-choice ALink pages...\n";
+	$data->{alink_page_map} = generate_alink_pages($output_dir, $data);
+	
 	generate_toc_pages($toc, $output_dir, \%link_map);
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
@@ -225,6 +228,9 @@ sub multichm
 	my %link_map = map { $_ => App::ChmWeb::Util::resolve_mixed_case_path($_, $output_dir) }
 		(@{ $data->{page_links} }, @{ $data->{asset_links} });
 	
+	print STDERR "Writing multi-choice ALink pages...\n";
+	$data->{alink_page_map} = generate_alink_pages($output_dir, $data);
+	
 	generate_toc_pages($toc, $output_dir, \%link_map);
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
@@ -304,14 +310,7 @@ sub chw
 		(@{ $data->{page_links} }, @{ $data->{asset_links} });
 	
 	print STDERR "Writing multi-choice ALink pages...\n";
-	
-	my $alinks = $chw->get_all_alinks();
-	my $alinks_with_multiple_topics = { map { $_ => $alinks->{$_} }
-		grep { (scalar @{ $alinks->{$_} }) > 1 }
-		keys(%$alinks) };
-	
-	my $alink_page_map = App::ChmWeb::LinkPageWriter::write_link_pages($output_dir, $alinks_with_multiple_topics);
-	$data->{alink_page_map} = $alink_page_map;
+	$data->{alink_page_map} = generate_alink_pages($output_dir, $data);
 	
 	generate_toc_pages($toc, $output_dir, \%link_map);
 	
@@ -319,6 +318,33 @@ sub chw
 	write_index_page($toc, $data, $output_dir);
 	
 	fix_permissions($output_dir);
+}
+
+sub generate_alink_pages
+{
+	my ($output_dir, $tree_data) = @_;
+	
+	my @all_alink_refs = map { $_->alink_refs() } $tree_data->get_pages();
+	
+	mkdir("${output_dir}/_alinks");
+	
+	my $page_writer = App::ChmWeb::LinkPageWriter->new($output_dir, "_alinks/", $tree_data->{chi}->get_all_alinks());
+	my %alink_page_map = ();
+	
+	foreach my $alink_ref(@all_alink_refs)
+	{
+		my (undef, $alink_names) = split(m/:/, $alink_ref, 2);
+		my @alink_names = split(m/;/, $alink_names);
+		
+		my @topics = map { $tree_data->{chi}->get_alink_by_key($_) } @alink_names;
+		
+		if((scalar @topics) > 1)
+		{
+			$alink_page_map{$alink_names} = $page_writer->get_link_page(\@alink_names);
+		}
+	}
+	
+	return \%alink_page_map;
 }
 
 sub generate_pages

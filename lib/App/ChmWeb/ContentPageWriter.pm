@@ -500,8 +500,9 @@ sub _resolve_link_for_object
 		my $fallback_link = $object->get_parameter("DEFAULTTOPIC");
 		my $chm_name      = $object->get_parameter("ITEM1") || $self->{page_data}->chm_name();
 		my $alink_name    = $object->get_parameter("ITEM2");
+		my @alink_names   = split(m/;/, $alink_name);
 		
-		my @topics = $self->{tree_data}->{chi}->get_alink_by_key($alink_name);
+		my @topics = map { $self->{tree_data}->{chi}->get_alink_by_key($_) } @alink_names;
 		
 		if((scalar @topics) == 1)
 		{
@@ -531,9 +532,9 @@ sub _resolve_link_for_object
 		else{
 			# There are multiple topics for this ALink, go to a page
 			
-			if(defined $self->{tree_data}->{alink_page_map}->{ fc($alink_name) })
+			if(defined $self->{tree_data}->{alink_page_map}->{ $alink_name })
 			{
-				$link = $self->{tree_data}->{alink_page_map}->{ fc($alink_name) };
+				$link = $self->{tree_data}->{alink_page_map}->{$alink_name};
 				$link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link, $self->{filename});
 				
 				return ($link, undef, "chmweb-multi-link");

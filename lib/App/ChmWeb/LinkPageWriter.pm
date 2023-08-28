@@ -25,26 +25,61 @@ use Carp qw(confess);
 use File::Basename;
 use HTML::Entities;
 
-sub write_link_pages
+use App::ChmWeb::Util;
+
+sub new
 {
-	my ($output_dir, $links) = @_;
+	my ($class, $output_dir, $page_prefix, $links) = @_;
 	
-	my %link_file_map = ();
+	return bless({
+		output_dir  => $output_dir,
+		page_prefix => $page_prefix,
+		links       => $links,
+		pages       => {},
+	}, $class);
+}
+
+sub get_link_page
+{
+	my ($self, $link_names) = @_;
 	
-	foreach my $link_name(sort keys %$links)
+	my @known_link_names = sort grep { defined($self->{links}->{$_}) } map { fc($_) } @$link_names;
+	return unless(@known_link_names);
+	
+	my $page_key = join(";", @known_link_names);
+	
+	unless(defined $self->{pages}->{$page_key})
 	{
-		my $s_link_name = _sanitise_name($link_name);
-		my $output_name = "${s_link_name}.html";
+		# Make a sanitised name for the page and clamp it to a sensible length.
+		my $s_link_name = join("-", map { _sanitise_name($_) } @known_link_names);
+		$s_link_name = substr($s_link_name, 0, 48);
 		
-		for(my $i = 1; -e "${output_dir}/${output_name}"; ++$i)
+		my $page_name = $self->{page_prefix}."${s_link_name}.html";
+		
+		for(my $i = 1; -e $self->{output_dir}."/${page_name}"; ++$i)
 		{
-			$output_name = "${s_link_name}.${i}.html";
+			$page_name = $self->{page_prefix}."${s_link_name}.${i}.html";
 		}
 		
-		open(my $fh, ">", "${output_dir}/${output_name}")
-			or die "Cannot open ${output_dir}/${output_name}: $!";
+		my @topics = map { @{ $self->{links}->{ fc($_) } } }
+			@known_link_names;
 		
-		print {$fh} <<EOF;
+		$self->_write_link_page($page_name, \@topics);
+		
+		$self->{pages}->{$page_key} = $page_name;
+	}
+	
+	return $self->{pages}->{$page_key};
+}
+
+sub _write_link_page
+{
+	my ($self, $page_name, $topics) = @_;
+	
+	open(my $fh, ">", $self->{output_dir}."/${page_name}")
+		or die "Cannot open ".$self->{output_dir}."/${page_name}: $!";
+	
+	print {$fh} <<EOF;
 <html>
 <head>
 <title>Topics</title>
@@ -53,11 +88,12 @@ sub write_link_pages
 <ul class="chmweb-links">
 EOF
 		
-		foreach my $topic(@{ $links->{$link_name} })
+		foreach my $topic(@$topics)
 		{
 			if(defined $topic->{Local})
 			{
-				print {$fh} "<li><a href=\"", encode_entities($topic->{Local}), "\" target=\"_top\">", encode_entities($topic->{Name} // basename($topic->{Local})), "</a></li>\n";
+				my $rel_path = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($topic->{Local}, $page_name);
+				print {$fh} "<li><a href=\"", encode_entities($rel_path), "\" target=\"_top\">", encode_entities($topic->{Name} // basename($topic->{Local})), "</a></li>\n";
 			}
 			else{
 				print {$fh} "<li><a href=\"", encode_entities($topic->{URL}), "\" target=\"_top\">", encode_entities($topic->{Name} // $topic->{URL}), "</a></li>\n";
@@ -69,11 +105,6 @@ EOF
 </body>
 </html>
 EOF
-		
-		$link_file_map{ fc($link_name) } = $output_name;
-	}
-	
-	return \%link_file_map;
 }
 
 sub _sanitise_name

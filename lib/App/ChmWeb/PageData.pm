@@ -119,4 +119,37 @@ sub objects
 	return @{ $self->{objects} };
 }
 
+=head2 alink_refs()
+
+Returns a list of ALinks referenced by this page, each being a string in this format:
+
+  "target.chm:target-alink"
+  "target.chm:target-alink-1;target-alink-2"
+
+=cut
+
+sub alink_refs
+{
+	my ($self) = @_;
+	
+	my @alink_refs = ();
+	
+	foreach my $object(@{ $self->{objects} })
+	{
+		next unless($object->is_hh_activex_control());
+		
+		my $command = $object->get_parameter("Command") // "<UNSET>";
+		
+		if($command =~ m/^ALink(,.*)?/)
+		{
+			my $chm_name    = $object->get_parameter("ITEM1") || $self->chm_name();
+			my $alink_names = $object->get_parameter("ITEM2");
+			
+			push(@alink_refs, "${chm_name}:${alink_names}");
+		}
+	}
+	
+	return @alink_refs;
+}
+
 1;
