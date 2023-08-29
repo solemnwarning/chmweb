@@ -273,9 +273,6 @@ sub modify_content
 				
 				$new_content = _encode_tag("A", \@a_attributes).encode_entities($text)."</A>";
 			}
-			else{
-				warn "Unable to resolve link for object at ".$self->{filename}." line ".$object->{start_line}."\n";
-			}
 		}
 		
 		push(@replacements, {
