@@ -25,9 +25,6 @@ use File::stat;
 use IO::Compress::Gzip qw(gzip $GzipError);
 use List::Util qw(all);
 
-use FindBin;
-use lib ("$FindBin::Bin/../lib/");
-
 use App::ChmWeb::AKLinkTable;
 use App::ChmWeb::ContentPageWriter;
 use App::ChmWeb::HHCParser;
