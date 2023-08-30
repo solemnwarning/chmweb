@@ -542,6 +542,56 @@ sub _resolve_link_for_object
 			}
 		}
 	}
+	elsif($command =~ m/^KLink(,.*)?/)
+	{
+		my $fallback_link = $object->get_parameter("DEFAULTTOPIC");
+		my $chm_name      = $object->get_parameter("ITEM1") || $self->{page_data}->chm_name();
+		my $klink_name    = $object->get_parameter("ITEM2");
+		my @klink_names   = split(m/;/, $klink_name);
+		
+		my @topics = map { $self->{tree_data}->{chi}->get_klink_by_key($_) } @klink_names;
+		
+		if((scalar @topics) == 1)
+		{
+			# There is one topic for this KLink, jump straight to it.
+			
+			if(defined $topics[0]->{Local})
+			{
+				my $rel_target_path = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($topics[0]->{Local}, $self->{filename});
+				$link = $rel_target_path;
+			}
+			elsif(defined $topics[0]->{URL})
+			{
+				$link = $topics[0]->{URL};
+			}
+			else{
+				warn "Not a local topic '$klink_name' for KLink object at ".$self->{filename}." line ".$object->{start_line}."\n";
+				$link = $fallback_link if(defined $fallback_link);
+			}
+		}
+		elsif((scalar @topics) == 0)
+		{
+			# No matches for this KLink, use the fallback URL.
+			
+			warn "Couldn't find KLink '$klink_name' in '$chm_name' for object at ".$self->{filename}." line ".$object->{start_line}."\n";
+			$link = $fallback_link if(defined $fallback_link);
+		}
+		else{
+			# There are multiple topics for this KLink, go to a page
+			
+			if(defined $self->{tree_data}->{klink_page_map}->{ $klink_name })
+			{
+				$link = $self->{tree_data}->{klink_page_map}->{$klink_name};
+				$link = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link, $self->{filename});
+				
+				return ($link, undef, "chmweb-multi-link");
+			}
+			else{
+				warn "Couldn't find KLink choice page for '$klink_name' in '$chm_name' for object at ".$self->{filename}." line ".$object->{start_line}."\n";
+				$link = $fallback_link if(defined $fallback_link);
+			}
+		}
+	}
 	else{
 		warn "Unimplemented Command '$command' in object at ".$self->{filename}." line ".$object->{start_line}."\n";
 	}

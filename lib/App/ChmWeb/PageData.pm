@@ -152,4 +152,37 @@ sub alink_refs
 	return @alink_refs;
 }
 
+=head2 klink_refs()
+
+Returns a list of KLinks referenced by this page, each being a string in this format:
+
+  "target.chm:target-klink"
+  "target.chm:target-klink-1;target-klink-2"
+
+=cut
+
+sub klink_refs
+{
+	my ($self) = @_;
+	
+	my @klink_refs = ();
+	
+	foreach my $object(@{ $self->{objects} })
+	{
+		next unless($object->is_hh_activex_control());
+		
+		my $command = $object->get_parameter("Command") // "<UNSET>";
+		
+		if($command =~ m/^KLink(,.*)?/)
+		{
+			my $chm_name    = $object->get_parameter("ITEM1") || $self->chm_name();
+			my $klink_names = $object->get_parameter("ITEM2");
+			
+			push(@klink_refs, "${chm_name}:${klink_names}");
+		}
+	}
+	
+	return @klink_refs;
+}
+
 1;

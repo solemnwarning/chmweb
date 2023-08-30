@@ -133,6 +133,9 @@ sub singlechm
 	print STDERR "Writing multi-choice ALink pages...\n";
 	$data->{alink_page_map} = generate_alink_pages($output_dir, $data);
 	
+	print STDERR "Writing multi-choice KLink pages...\n";
+	$data->{klink_page_map} = generate_klink_pages($output_dir, $data);
+	
 	generate_toc_pages($toc, $output_dir, \%link_map);
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
@@ -228,6 +231,9 @@ sub multichm
 	print STDERR "Writing multi-choice ALink pages...\n";
 	$data->{alink_page_map} = generate_alink_pages($output_dir, $data);
 	
+	print STDERR "Writing multi-choice KLink pages...\n";
+	$data->{klink_page_map} = generate_klink_pages($output_dir, $data);
+	
 	generate_toc_pages($toc, $output_dir, \%link_map);
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
@@ -309,6 +315,9 @@ sub chw
 	print STDERR "Writing multi-choice ALink pages...\n";
 	$data->{alink_page_map} = generate_alink_pages($output_dir, $data);
 	
+	print STDERR "Writing multi-choice KLink pages...\n";
+	$data->{klink_page_map} = generate_klink_pages($output_dir, $data);
+	
 	generate_toc_pages($toc, $output_dir, \%link_map);
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
@@ -342,6 +351,33 @@ sub generate_alink_pages
 	}
 	
 	return \%alink_page_map;
+}
+
+sub generate_klink_pages
+{
+	my ($output_dir, $tree_data) = @_;
+	
+	my @all_klink_refs = map { $_->klink_refs() } $tree_data->get_pages();
+	
+	mkdir("${output_dir}/_klinks");
+	
+	my $page_writer = App::ChmWeb::LinkPageWriter->new($output_dir, "_klinks/", $tree_data->{chi}->get_all_klinks());
+	my %klink_page_map = ();
+	
+	foreach my $klink_ref(@all_klink_refs)
+	{
+		my (undef, $klink_names) = split(m/:/, $klink_ref, 2);
+		my @klink_names = split(m/;/, $klink_names);
+		
+		my @topics = map { $tree_data->{chi}->get_klink_by_key($_) } @klink_names;
+		
+		if((scalar @topics) > 1)
+		{
+			$klink_page_map{$klink_names} = $page_writer->get_link_page(\@klink_names);
+		}
+	}
+	
+	return \%klink_page_map;
 }
 
 sub generate_pages
