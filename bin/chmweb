@@ -23,6 +23,7 @@ use Fcntl qw(:mode);
 use File::Basename;
 use File::stat;
 use IO::Compress::Gzip qw(gzip $GzipError);
+use JSON qw(to_json);
 use List::Util qw(all);
 
 use App::ChmWeb::AKLinkTable;
@@ -35,6 +36,7 @@ use App::ChmWeb::Util;
 use App::ChmWeb::WorkerPool;
 
 my $gzip_pages = 0;
+my $toc_json_file = undef;
 
 main() unless caller;
 
@@ -48,6 +50,11 @@ sub main
 		{
 			splice(@ARGV, $i, 1);
 			$gzip_pages = 1;
+		}
+		elsif($ARGV[$i] eq "--write-toc-json")
+		{
+			splice(@ARGV, $i, 1);
+			$toc_json_file = shift(@ARGV);
 		}
 		elsif($ARGV[$i] eq "--")
 		{
@@ -137,6 +144,8 @@ sub singlechm
 	$data->{klink_page_map} = generate_klink_pages($output_dir, $data);
 	
 	generate_toc_pages($toc, $output_dir, \%link_map);
+	
+	write_toc_json($toc, \%link_map, $toc_json_file) if(defined $toc_json_file);
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
 	write_index_page($toc, $data, $output_dir);
@@ -236,6 +245,8 @@ sub multichm
 	
 	generate_toc_pages($toc, $output_dir, \%link_map);
 	
+	write_toc_json($toc, \%link_map, $toc_json_file) if(defined $toc_json_file);
+	
 	generate_pages($output_dir, $toc, $data, \%link_map);
 	write_index_page($toc, $data, $output_dir);
 	
@@ -319,6 +330,8 @@ sub chw
 	$data->{klink_page_map} = generate_klink_pages($output_dir, $data);
 	
 	generate_toc_pages($toc, $output_dir, \%link_map);
+	
+	write_toc_json($toc, \%link_map, $toc_json_file) if(defined $toc_json_file);
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
 	write_index_page($toc, $data, $output_dir);
@@ -766,4 +779,50 @@ sub write_index_page
 	my $toc_page_url = "_toc/toc".join("_", @toc_page_path).".html#toc".join("_", $toc_page->path());
 	
 	write_wrapper_page(($page_data->title() // ""), $output_dir, "index.html", $content_path, $toc_page_url);
+}
+
+sub write_toc_json
+{
+	my ($toc, $link_map, $path) = @_;
+	
+	my $build_toc_list = sub
+	{
+		my ($build_toc_list, $toc_nodes) = @_;
+		
+		my @list = ();
+		
+		for(my $i = 0; $i < @$toc_nodes; ++$i)
+		{
+			my $node = $toc_nodes->[$i];
+			
+			my %n = (
+				title => ($node->title() // "???"),
+			);
+			
+			if($node->isa("App::ChmWeb::ToC::Node::Page") && defined($link_map->{ $node->filename() }))
+			{
+				$n{path} = $link_map->{ $node->filename() };
+			}
+			
+			if($node->isa("App::ChmWeb::ToC::Node::Container") && $node->children())
+			{
+				$n{children} = $build_toc_list->($build_toc_list, [ $node->children() ]);
+			}
+			
+			push(@list, \%n);
+		}
+		
+		return \@list;
+	};
+	
+	my $data = $build_toc_list->($build_toc_list, [ $toc->root() ]);
+	
+	my $json = to_json($data, { pretty => 1, utf8 => 1 });
+	
+	open(my $f, ">", $path) or die "Unable to open $path: $!\n";
+	binmode($f, ":raw");
+	
+	print {$f} $json;
+	
+	close($f);
 }
