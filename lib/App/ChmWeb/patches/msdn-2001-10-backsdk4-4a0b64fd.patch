@@ -1,0 +1,14 @@
+filename: backsdk4.css
+checksum: 4a0b64fd403ab70a60865316a252af24af0d21b03fda157aa37c19664c9aaaa7
+
+--- backsdk4.css	2022-09-21 23:53:53.000000000 +0100
++++ backsdk4.css	2023-10-08 10:34:36.544256928 +0100
+@@ -104,7 +104,7 @@
+ ul ol, ol ol
+ 	{
+ 	list-style-type: lower-alpha;
+-	{
++	}
+ 
+ pre
+ 	{

@@ -101,6 +101,8 @@ sub singlechm
 {
 	my ($chm_file, $output_dir) = @_;
 	
+	my @postprocessors = load_postprocessors();
+	
 	my $chm_dirname = dirname($chm_file) // ".";
 	my $chm_basename = basename($chm_file);
 	
@@ -150,12 +152,16 @@ sub singlechm
 	generate_pages($output_dir, $toc, $data, \%link_map);
 	write_index_page($toc, $data, $output_dir);
 	
+	postprocess_output(\@postprocessors, $output_dir);
+	
 	fix_permissions($output_dir);
 }
 
 sub multichm
 {
 	my ($chm_files, $output_dir) = @_;
+	
+	my @postprocessors = load_postprocessors();
 	
 	my $toc = App::ChmWeb::ToC->new();
 	my @chi_links = ();
@@ -250,12 +256,16 @@ sub multichm
 	generate_pages($output_dir, $toc, $data, \%link_map);
 	write_index_page($toc, $data, $output_dir);
 	
+	postprocess_output(\@postprocessors, $output_dir);
+	
 	fix_permissions($output_dir);
 }
 
 sub chw
 {
 	my ($chw_file, $output_dir) = @_;
+	
+	my @postprocessors = load_postprocessors();
 	
 	my $chw_dirname = dirname($chw_file);
 	my $chw_basename = basename($chw_file);
@@ -335,6 +345,8 @@ sub chw
 	
 	generate_pages($output_dir, $toc, $data, \%link_map);
 	write_index_page($toc, $data, $output_dir);
+	
+	postprocess_output(\@postprocessors, $output_dir);
 	
 	fix_permissions($output_dir);
 }
@@ -825,4 +837,27 @@ sub write_toc_json
 	print {$f} $json;
 	
 	close($f);
+}
+
+sub postprocess_output
+{
+	my ($postprocessors, $output_dir) = @_;
+	
+	print STDERR "Running postprocessors...\n";
+	
+	foreach my $postprocessor(@$postprocessors)
+	{
+		my $postprocessor = $postprocessor->new();
+		
+		$postprocessor->postprocess_directory($output_dir);
+	}
+}
+
+sub load_postprocessors
+{
+	# TODO: Dynamically search for postprocessor plugins.
+	
+	require "App::ChmWeb::PostProcessor::Patch";
+	
+	return ("App::ChmWeb::PostProcessor::Patch");
 }

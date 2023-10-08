@@ -1,0 +1,14 @@
+filename: advsdkatie4.css
+checksum: 78e247785224b19770248d4c2a7968ddb8010ff6ca185882abbe3017df057265
+
+--- advsdkatie4.css	2022-09-21 23:53:43.000000000 +0100
++++ advsdkatie4.css	2023-10-08 11:55:13.217500707 +0100
+@@ -5,7 +5,7 @@
+ TABLE.clsMarkupOccurs, TABLE.TMAT3D {background-color: #CFCFCF; border: 0;}
+ 
+ TABLE.clsMarkupOccurs TD {padding-bottom: 2; background-color: #EFEFEF;}
+-TABLE.clsMarkupOccurs TH {vertical-align: top; border: 1 outset; margin: 0; font-family: Arial; font-size: 8pt; background-color: #EFEFEF; color: #000000;
++TABLE.clsMarkupOccurs TH {vertical-align: top; border: 1 outset; margin: 0; font-family: Arial; font-size: 8pt; background-color: #EFEFEF; color: #000000; }
+ 
+ 
+  
