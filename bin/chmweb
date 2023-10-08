@@ -877,7 +877,7 @@ sub load_postprocessors
 {
 	# TODO: Dynamically search for postprocessor plugins.
 	
-	require "App::ChmWeb::PostProcessor::Patch";
+	require "App/ChmWeb/PostProcessor/Patch.pm";
 	
 	return ("App::ChmWeb::PostProcessor::Patch");
 }
