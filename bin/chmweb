@@ -503,11 +503,31 @@ sub write_wrapper_page
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <title>$page_title</title>
+
+<style type="text/css">
+#chmweb_toc_frame
+{
+	position: fixed;
+	top: 0px;
+	left: 0px;
+	height: 100%;
+	width: 20em;
+}
+
+#chmweb_content_frame
+{
+	position: fixed;
+	top: 0px;
+	width: calc(100% - 20em);
+	left: 20em;
+	height:100%;
+}
+</style>
 </head>
 
 <body>
-<iframe src="$toc_page_url" style="position: fixed; top: 0px; left: 0px; height: 100%; width: 20em;"></iframe>
-<iframe src="$content_path" style="position: fixed; top: 0px; width: calc(100% - 20em); left: 20em; height:100%;"></iframe>
+<iframe src="$toc_page_url" id="chmweb_toc_frame" name="chmweb_toc_frame"></iframe>
+<iframe src="$content_path" id="chmweb_content_frame" name="chmweb_content_frame"></iframe>
 </body>
 </html>
 EOF
