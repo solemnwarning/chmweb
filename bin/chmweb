@@ -272,7 +272,10 @@ sub chw
 	
 	print STDERR "Loading CHW file...\n";
 	
-	my $chw = App::ChmWeb::AKLinkTable->load_chw($chw_file);
+	# Treat a zero-byte chw as a stub, all we technically need is the col file...
+	my $chw = (-s $chw_file == 0)
+		? App::ChmWeb::AKLinkTable->stub_chi()
+		: App::ChmWeb::AKLinkTable->load_chw($chw_file);
 	
 	print STDERR "Loading COL file...\n";
 	
