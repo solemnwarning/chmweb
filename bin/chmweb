@@ -878,9 +878,29 @@ sub postprocess_output
 
 sub load_postprocessors
 {
-	# TODO: Dynamically search for postprocessor plugins.
+	my %seen_postprocessors = ();
+	my @postprocessors = ();
 	
-	require "App/ChmWeb/PostProcessor/Patch.pm";
+	foreach my $libdir(@INC)
+	{
+		my $ppdir = "$libdir/App/ChmWeb/PostProcessor";
+		
+		if(-e $ppdir)
+		{
+			opendir(my $d, $ppdir) or die "$ppdir: $!";
+			
+			foreach my $name(readdir($d))
+			{
+				if($name =~ m/^(.+)\.pm$/ && !$seen_postprocessors{$name})
+				{
+					my $class = "App::ChmWeb::PostProcessor::$1";
+					
+					require "App/ChmWeb/PostProcessor/$name";
+					push(@postprocessors, $class);
+				}
+			}
+		}
+	}
 	
-	return ("App::ChmWeb::PostProcessor::Patch");
+	return sort @postprocessors;
 }
