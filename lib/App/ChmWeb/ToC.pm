@@ -305,6 +305,21 @@ sub chm_stem_by_path
 	return $stem;
 }
 
+=head2 all_chm_subdirs()
+
+Returns the subdirectory for each registered chm file.
+
+When processing a single chm, an empty string will be returned.
+
+=cut
+
+sub all_chm_subdirs
+{
+	my ($self) = @_;
+	
+	return values(%{ $self->{chm_stem_to_subdir} });
+}
+
 =head2 depth_first_search($func)
 
 Performs a depth-first search of every node in the ToC.

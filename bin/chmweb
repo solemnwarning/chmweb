@@ -152,7 +152,7 @@ sub singlechm
 	generate_pages($output_dir, $toc, $data, \%link_map);
 	write_index_page($toc, $data, $output_dir);
 	
-	postprocess_output(\@postprocessors, $output_dir);
+	postprocess_output(\@postprocessors, $output_dir, $data);
 	
 	fix_permissions($output_dir);
 }
@@ -256,7 +256,7 @@ sub multichm
 	generate_pages($output_dir, $toc, $data, \%link_map);
 	write_index_page($toc, $data, $output_dir);
 	
-	postprocess_output(\@postprocessors, $output_dir);
+	postprocess_output(\@postprocessors, $output_dir, $data);
 	
 	fix_permissions($output_dir);
 }
@@ -349,7 +349,7 @@ sub chw
 	generate_pages($output_dir, $toc, $data, \%link_map);
 	write_index_page($toc, $data, $output_dir);
 	
-	postprocess_output(\@postprocessors, $output_dir);
+	postprocess_output(\@postprocessors, $output_dir, $data);
 	
 	fix_permissions($output_dir);
 }
@@ -864,7 +864,7 @@ sub write_toc_json
 
 sub postprocess_output
 {
-	my ($postprocessors, $output_dir) = @_;
+	my ($postprocessors, $output_dir, $tree_data) = @_;
 	
 	print STDERR "Running postprocessors...\n";
 	
@@ -872,7 +872,7 @@ sub postprocess_output
 	{
 		my $postprocessor = $postprocessor->new();
 		
-		$postprocessor->postprocess_directory($output_dir);
+		$postprocessor->postprocess_directory($output_dir, $tree_data);
 	}
 }
 
