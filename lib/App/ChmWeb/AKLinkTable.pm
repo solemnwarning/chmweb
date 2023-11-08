@@ -474,6 +474,15 @@ sub _load_topics
 			# > ANSI/UTF-8 NT string that is the Local for this topic.
 			my ($urlstr_string) = $self->_file_read_utf8_string($urlstr_file, $urlstr_offset + 8);
 			
+			if(!defined($strings_string) && $urlstr_string =~ m/\.hh[kc]$/i)
+			{
+				# Some .chi files have topics which reference the .hhc inside the
+				# chm for some reason, this causes problems for us since it gets
+				# registered as a page, so just skip them.
+				
+				next;
+			}
+			
 			push(@topics, {
 				Name  => $strings_string,
 				Local => $path_prefix.$urlstr_string,
