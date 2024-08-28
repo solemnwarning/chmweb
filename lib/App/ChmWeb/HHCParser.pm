@@ -34,6 +34,7 @@ sub parse_hhc_file
 	
 	$p->parse($filename);
 	
+	_fix_param_case($h->{toc});
 	_merge_empty_nodes($h->{toc});
 	
 	return {
@@ -49,6 +50,58 @@ sub parse_hhc_file
 sub _merge_empty_nodes
 {
 	my ($nodes) = @_;
+	
+	for(my $i = 0; ($i + 1) < (scalar @$nodes);)
+	{
+		my @next_keys = keys(%{ $nodes->[$i + 1] });
+		
+		if((scalar @next_keys) == 1 && $next_keys[0] eq "children")
+		{
+			$nodes->[$i]->{children} = [
+				@{ $nodes->[$i]->{children} // [] },
+				@{ $nodes->[$i + 1]->{children} },
+			];
+			
+			splice(@$nodes, $i + 1, 1);
+		}
+		else{
+			++$i;
+		}
+	}
+	
+	foreach my $node(@$nodes)
+	{
+		if(defined $node->{children})
+		{
+			_merge_empty_nodes($node->{children});
+		}
+	}
+}
+
+sub _fix_param_case
+{
+	my ($nodes) = @_;
+	
+	foreach my $node(@$nodes)
+	{
+		foreach my $param(qw(Name Local))
+		{
+			next if(defined $node->{$param});
+			
+			my ($alt_param) = grep { m/^$param$/i } keys(%$node);
+			
+			if(defined $alt_param)
+			{
+				$node->{$param} = $node->{$alt_param};
+				delete $node->{$alt_param};
+			}
+		}
+		
+		if(defined $node->{children})
+		{
+			_fix_param_case($node->{children});
+		}
+	}
 	
 	for(my $i = 0; ($i + 1) < (scalar @$nodes);)
 	{
