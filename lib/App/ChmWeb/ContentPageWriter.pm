@@ -1,5 +1,5 @@
 # App::ChmWeb - Generate browsable web pages from CHM files
-# Copyright (C) 2022-2023 Daniel Collins <solemnwarning@solemnwarning.net>
+# Copyright (C) 2022-2024 Daniel Collins <solemnwarning@solemnwarning.net>
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License version 2 as published by
@@ -403,8 +403,9 @@ sub _resolve_link
 	}
 	
 	# MS-ITS:dsmsdn.chm::/html/msdn_footer.js
+	# mk:@MSITStore:techart.chm::/html/jangrayhood.htm
 	
-	if($link =~ m/^ms-its:([^:]+)::([^>]+)(?:>(.+))?$/si)
+	if($link =~ m/^(?:ms-its|mk:\@MSITStore):([^:]+)::([^>]+)(?:>(.+))?$/si)
 	{
 		my $chm_name = $1;
 		my $chm_url = $2;
