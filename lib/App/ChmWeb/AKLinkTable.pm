@@ -480,13 +480,20 @@ sub _load_topics
 				# chm for some reason, this causes problems for us since it gets
 				# registered as a page, so just skip them.
 				
-				next;
+				# next;
+				
+				# Nope, we don't skip them, because that would mess up the indices
+				# in the topics array, we insert an empty hash that hopefully won't
+				# break anything instead.
+				
+				push(@topics, {});
 			}
-			
-			push(@topics, {
-				Name  => $strings_string,
-				Local => $path_prefix.$urlstr_string,
-			});
+			else{
+				push(@topics, {
+					Name  => $strings_string,
+					Local => $path_prefix.$urlstr_string,
+				});
+			}
 		}
 		else{
 			# TODO: I don't think these are right...
