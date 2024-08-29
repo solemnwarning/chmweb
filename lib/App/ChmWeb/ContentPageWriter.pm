@@ -382,7 +382,7 @@ sub _resolve_link
 		}
 	}
 	
-	if($link =~ m/^\w+:/)
+	if($link =~ m/^\w+:/ && $link !~ m/^mk:\@MSITStore:/i)
 	{
 		# Link starts with a protocol, return as-is.
 		return ($link, undef, undef);

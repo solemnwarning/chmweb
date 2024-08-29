@@ -283,7 +283,7 @@ sub _get_link_path
 {
 	my ($self, $link, $page_path, $chm_root) = @_;
 	
-	if($link =~ m/^\w+:/)
+	if($link =~ m/^\w+:/ && $link !~ m/^mk:\@MSITStore:/i)
 	{
 		# Link starts with a protocol, discard it.
 		return undef;
