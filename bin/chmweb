@@ -650,7 +650,7 @@ sub write_toc_page
 				if(defined($link_map->{ $node->filename() }))
 				{
 					my $href = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link_map->{ $node->filename() }, $html_path);
-					$aa = "<a id=\"$anchor\" href=\"$href\" target=\"_top\">";
+					$aa = "<a href=\"$href\" target=\"_top\">";
 					$ab = "</a>";
 				}
 				else{
@@ -659,11 +659,11 @@ sub write_toc_page
 			}
 			elsif(defined $expand_href)
 			{
-				$aa = "<a id=\"$anchor\" href=\"${expand_href}\">";
+				$aa = "<a href=\"${expand_href}\">";
 				$ab = "</a>";
 			}
 			
-			$r .= "<li>${expand_link}${aa}".($node->title() // "???")."${ab}${child_list}</li>\n";
+			$r .= "<li id=\"$anchor\">${expand_link}${aa}".($node->title() // "???")."${ab}${child_list}</li>\n";
 		}
 		
 		$r .= "</ul>\n";
@@ -703,8 +703,18 @@ a {
 	text-decoration: none;
 }
 
-a:target {
+li:target > a {
 	font-weight: bold;
+}
+
+/* https://stackoverflow.com/a/24298427 */
+body > ul > li:not(:first-of-type)::before,
+body > ul ul li::before {
+  content: '';
+  display: block;
+  height:      2.0em;
+  margin-top: -2.0em;
+  visibility: hidden;
 }
 </style>
 </head>
