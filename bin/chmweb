@@ -430,7 +430,7 @@ sub generate_pages
 		my @toc_page_path = $page_data->toc_path();
 		pop(@toc_page_path) unless($toc->nodes_at(\@toc_page_path));
 		
-		my $toc_page_url = App::ChmWeb::Util::root_relative_path_to_doc_relative_path("_toc/toc".join("_", @toc_page_path).".html", $page_path)."#toc".join("_", adjust_toc_anchor(@$toc_path));
+		my $toc_page_url = App::ChmWeb::Util::root_relative_path_to_doc_relative_path("_toc/toc".join("_", @toc_page_path).".html", $page_path)."#toc".join("_", @$toc_path);
 		
 		my $chm_root = $toc->chm_subdir_by_stem($toc->chm_stem_by_path($page_path));
 		
@@ -637,7 +637,7 @@ sub write_toc_page
 					$expand_link = "<span class=\"arrow\">&#x25BC;</span>";
 				}
 				else{
-					$expand_href = "toc".join("_", @$toc_at, $i).".html#toc".join("_", adjust_toc_anchor(@$toc_at, $i));
+					$expand_href = "toc".join("_", @$toc_at, $i).".html#toc".join("_", @$toc_at, $i);
 					$expand_link = "<a class=\"arrow\" href=\"${expand_href}\">&#x25B6;</a>";
 				}
 			}
@@ -811,7 +811,7 @@ sub write_index_page
 	my @toc_page_path = $page_data->toc_path();
 	pop(@toc_page_path) unless($toc->nodes_at(\@toc_page_path));
 	
-	my $toc_page_url = "_toc/toc".join("_", @toc_page_path).".html#toc".join("_", adjust_toc_anchor($toc_page->path()));
+	my $toc_page_url = "_toc/toc".join("_", @toc_page_path).".html#toc".join("_", $toc_page->path());
 	
 	write_wrapper_page(($page_data->title() // ""), $output_dir, "index.html", $content_path, $toc_page_url);
 }
@@ -860,24 +860,6 @@ sub write_toc_json
 	print {$f} $json;
 	
 	close($f);
-}
-
-sub adjust_toc_anchor
-{
-	my (@toc_path) = @_;
-	
-	for(my $i = 0; $i < 2 && ((scalar @toc_path) > 1 || $toc_path[-1] > 0); ++$i)
-	{
-		if($toc_path[-1] > 0)
-		{
-			--($toc_path[-1]);
-		}
-		else{
-			pop(@toc_path);
-		}
-	}
-	
-	return @toc_path;
 }
 
 sub postprocess_output
