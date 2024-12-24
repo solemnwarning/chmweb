@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 # App::ChmWeb - Generate browsable web pages from CHM files
-# Copyright (C) 2022-2023 Daniel Collins <solemnwarning@solemnwarning.net>
+# Copyright (C) 2022-2024 Daniel Collins <solemnwarning@solemnwarning.net>
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License version 2 as published by
@@ -145,7 +145,7 @@ sub singlechm
 	print STDERR "Writing multi-choice KLink pages...\n";
 	$data->{klink_page_map} = generate_klink_pages($output_dir, $data);
 	
-	generate_toc_pages($toc, $output_dir, \%link_map);
+	generate_toc_pages($toc, $output_dir, \%link_map, $data);
 	
 	write_toc_json($toc, \%link_map, $toc_json_file) if(defined $toc_json_file);
 	
@@ -249,7 +249,7 @@ sub multichm
 	print STDERR "Writing multi-choice KLink pages...\n";
 	$data->{klink_page_map} = generate_klink_pages($output_dir, $data);
 	
-	generate_toc_pages($toc, $output_dir, \%link_map);
+	generate_toc_pages($toc, $output_dir, \%link_map, $data);
 	
 	write_toc_json($toc, \%link_map, $toc_json_file) if(defined $toc_json_file);
 	
@@ -342,7 +342,7 @@ sub chw
 	print STDERR "Writing multi-choice KLink pages...\n";
 	$data->{klink_page_map} = generate_klink_pages($output_dir, $data);
 	
-	generate_toc_pages($toc, $output_dir, \%link_map);
+	generate_toc_pages($toc, $output_dir, \%link_map, $data);
 	
 	write_toc_json($toc, \%link_map, $toc_json_file) if(defined $toc_json_file);
 	
@@ -438,6 +438,12 @@ sub generate_pages
 		
 		my $local_content_path = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($content_path, $page_path);
 		write_wrapper_page(($page_data->title() // ""), $output_dir, $page_path, $local_content_path, $toc_page_url);
+		
+		foreach my $anchor_id($page_data->anchor_ids())
+		{
+			my $anchor_path = ($page_path =~ s/\.(\w+)$/.a.$anchor_id.$1/r);
+			write_wrapper_page(($page_data->title() // ""), $output_dir, $anchor_path, "${local_content_path}#${anchor_id}", $toc_page_url);
+		}
 		
 		return;
 	});
@@ -555,7 +561,7 @@ EOF
 
 sub generate_toc_pages
 {
-	my ($toc, $output_dir, $link_map) = @_;
+	my ($toc, $output_dir, $link_map, $tree_data) = @_;
 	
 	unless(-e "${output_dir}/_toc/")
 	{
@@ -570,7 +576,7 @@ sub generate_toc_pages
 		my ($toc_path) = @_;
 		
 		my $html_path = "_toc/toc".join("_", @$toc_path).".html";
-		write_toc_page($toc, $toc_path, $output_dir, $html_path, $link_map);
+		write_toc_page($toc, $toc_path, $output_dir, $html_path, $link_map, $tree_data);
 		
 		return;
 	});
@@ -608,7 +614,7 @@ sub generate_toc_pages
 
 sub write_toc_page
 {
-	my ($toc, $toc_path, $output_dir, $html_path, $link_map) = @_;
+	my ($toc, $toc_path, $output_dir, $html_path, $link_map, $tree_data) = @_;
 	
 	my $build_toc_list = sub
 	{
@@ -650,6 +656,15 @@ sub write_toc_page
 				if(defined($link_map->{ $node->filename() }))
 				{
 					my $href = App::ChmWeb::Util::root_relative_path_to_doc_relative_path($link_map->{ $node->filename() }, $html_path);
+					
+					my $page_data = $tree_data->get_page_data($link_map->{ $node->filename() });
+					my $anchor_id = $node->anchor();
+					
+					if(defined($page_data) && defined($anchor_id) && $page_data->has_anchor($anchor_id))
+					{
+						$href =~ s/\.(\w+)$/.a.$anchor_id.$1/;
+					}
+					
 					$aa = "<a href=\"$href\" target=\"_top\">";
 					$ab = "</a>";
 				}

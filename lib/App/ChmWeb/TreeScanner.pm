@@ -254,7 +254,8 @@ sub _walk_hhc_level
 				# $out_node->{page_link} = $node->{Local};
 				# $out_node->{page_path} = $page_link_path;
 				
-				$toc_node = App::ChmWeb::ToC::Node::Page->new($node->{Name}, $page_link_path);
+				my ($anchor) = ($node->{Local} =~ m/#(.+)$/);
+				$toc_node = App::ChmWeb::ToC::Node::Page->new($node->{Name}, $page_link_path, $anchor);
 			}
 			else{
 				# TODO: warn about hhc referencing external files...

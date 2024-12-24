@@ -465,6 +465,17 @@ sub _resolve_link
 				if(@link_toc_path)
 				{
 					$link_target = "_top";
+					
+					if($anchor ne "")
+					{
+						my ($anchor_id) = ($anchor =~ m/^#(.*)$/);
+						
+						if($link_page_data->has_anchor($anchor_id))
+						{
+							$resolved_link =~ s/\.(\w+)$/.a.$anchor_id.$1/;
+							$anchor = "";
+						}
+					}
 				}
 				else{
 					$resolved_link =~ s/\.(\w+)$/.content.$1/;

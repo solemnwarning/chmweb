@@ -1,5 +1,5 @@
 # App::ChmWeb - Generate browsable web pages from CHM files
-# Copyright (C) 2022 Daniel Collins <solemnwarning@solemnwarning.net>
+# Copyright (C) 2022-2024 Daniel Collins <solemnwarning@solemnwarning.net>
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License version 2 as published by
@@ -47,6 +47,7 @@ sub new
 			
 			asset_links  => [],
 			page_links   => [],
+			anchor_ids   => [],
 			title        => undef,
 			objects      => [],
 		}, $class);
@@ -105,6 +106,19 @@ sub title
 {
 	my ($self) = @_;
 	return $self->{title};
+}
+
+sub anchor_ids
+{
+	my ($self) = @_;
+	return @{ $self->{anchor_ids} };
+}
+
+sub has_anchor
+{
+	my ($self, $name_or_id) = @_;
+	
+	return !!(grep { $_ eq $name_or_id } $self->anchor_ids());
 }
 
 =head2 objects()

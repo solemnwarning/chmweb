@@ -1,5 +1,5 @@
 # App::ChmWeb - Generate browsable web pages from CHM files
-# Copyright (C) 2022 Daniel Collins <solemnwarning@solemnwarning.net>
+# Copyright (C) 2022-2024 Daniel Collins <solemnwarning@solemnwarning.net>
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License version 2 as published by
@@ -51,6 +51,7 @@ sub scan_page
 	   $data->{title}          =    $h->{title};
 	@{ $data->{asset_links}  } = @{ $h->{asset_links} };
 	@{ $data->{page_links}   } = @{ $h->{page_links} };
+	@{ $data->{anchor_ids}   } = @{ $h->{anchor_ids} };
 	@{ $data->{objects}      } = @{ $h->{objects} };
 	
 	# TODO: Filter dirs/not-pages/etc out of page_links
@@ -74,6 +75,7 @@ sub new
 		
 		asset_links => [],
 		page_links  => [],
+		anchor_ids  => [],
 		title       => undef,
 		processing_title => 0,
 		processing_script => 0,
@@ -195,6 +197,18 @@ sub start_element
 				warn "Encountered <PARAM> tag with no 'NAME' attribute at ".$loc->{FileName}." line ".$loc->{LineNumber}."\n";
 			}
 		}
+	}
+	
+	my ($name_attr) = grep { fc($_->{name}) eq fc("name") } @attributes;
+	if(defined($name_attr) && defined($name_attr->{value}))
+	{
+		push(@{ $self->{anchor_ids} }, $name_attr->{value});
+	}
+	
+	my ($id_attr) = grep { fc($_->{name}) eq fc("id") } @attributes;
+	if(defined($id_attr) && defined($id_attr->{value}))
+	{
+		push(@{ $self->{anchor_ids} }, $id_attr->{value});
 	}
 }
 

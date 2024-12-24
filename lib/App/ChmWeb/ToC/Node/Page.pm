@@ -1,5 +1,5 @@
 # App::ChmWeb - Generate browsable web pages from CHM files
-# Copyright (C) 2023 Daniel Collins <solemnwarning@solemnwarning.net>
+# Copyright (C) 2023-2024 Daniel Collins <solemnwarning@solemnwarning.net>
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License version 2 as published by
@@ -22,11 +22,12 @@ use base qw(App::ChmWeb::ToC::Node::Container);
 
 sub new
 {
-	my ($class, $title, $filename) = @_;
+	my ($class, $title, $filename, $anchor) = @_;
 	
 	return $class->SUPER::new(
 		title    => $title,
 		filename => $filename,
+		anchor   => $anchor,
 	);
 }
 
@@ -41,6 +42,12 @@ sub filename
 {
 	my ($self) = @_;
 	return $self->{filename};
+}
+
+sub anchor
+{
+	my ($self) = @_;
+	return $self->{anchor};
 }
 
 1;
