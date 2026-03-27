@@ -1,3 +1,7 @@
+# NEW REPOSITORY LOCATION
+
+This repository has been archived and development will continue on [Codeberg](https://codeberg.org/solemnwarning/chmweb).
+
 # App::ChmWeb
 
 This is a tool for generating browsable web pages from CHM (Microsoft Compiled HTML Help) files.
